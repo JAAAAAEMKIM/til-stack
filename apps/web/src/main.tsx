@@ -4,7 +4,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createRouter } from "@tanstack/react-router";
 import { trpc, createTRPCClient } from "./lib/trpc";
 import { routeTree } from "./routeTree.gen";
+import { initTheme } from "./lib/theme";
 import "./styles/globals.css";
+
+initTheme();
 
 const router = createRouter({ routeTree });
 

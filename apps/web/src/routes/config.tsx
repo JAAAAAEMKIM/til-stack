@@ -9,8 +9,9 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Trash2, Plus, Star, Loader2, Bell, X, Pencil } from "lucide-react";
+import { Trash2, Plus, Star, Loader2, Bell, X, Pencil, Monitor, Sun, Moon } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { useTheme, type Theme } from "@/lib/theme";
 import { rootRoute } from "./__root";
 
 export const configRoute = createRoute({
@@ -34,10 +35,45 @@ function ConfigPage() {
     <div className="space-y-8 max-w-2xl mx-auto">
       <h1 className="text-2xl font-bold">Settings</h1>
 
+      <AppearanceSection />
       <SkipDaysSection />
       <TemplatesSection />
       <NotificationsSection />
     </div>
+  );
+}
+
+const THEME_OPTIONS: { value: Theme; label: string; icon: typeof Monitor }[] = [
+  { value: "system", label: "System", icon: Monitor },
+  { value: "light", label: "Light", icon: Sun },
+  { value: "dark", label: "Dark", icon: Moon },
+];
+
+function AppearanceSection() {
+  const { theme, setTheme } = useTheme();
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Appearance</CardTitle>
+        <CardDescription>Choose your preferred theme</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex gap-2">
+          {THEME_OPTIONS.map(({ value, label, icon: Icon }) => (
+            <Button
+              key={value}
+              variant={theme === value ? "default" : "outline"}
+              className="flex-1"
+              onClick={() => setTheme(value)}
+            >
+              <Icon className="h-4 w-4 mr-2" />
+              {label}
+            </Button>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
