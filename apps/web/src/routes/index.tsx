@@ -66,6 +66,44 @@ function addDays(dateStr: string, days: number): string {
   return `${year}-${month}-${day}`;
 }
 
+interface SkipDaysConfig {
+  weekdays: number[];
+  specificDates: string[];
+}
+
+function shouldSkipDate(
+  dateStr: string,
+  config: SkipDaysConfig | undefined
+): boolean {
+  if (!config) return false;
+
+  // Check specific dates
+  if (config.specificDates.includes(dateStr)) return true;
+
+  // Check weekday
+  const date = new Date(dateStr + "T00:00:00");
+  const weekday = date.getDay();
+  if (config.weekdays.includes(weekday)) return true;
+
+  return false;
+}
+
+function getNextValidDay(
+  dateStr: string,
+  direction: number,
+  config: SkipDaysConfig | undefined
+): string {
+  let result = dateStr;
+  let maxIterations = 365; // Safety limit
+
+  do {
+    result = addDays(result, direction);
+    maxIterations--;
+  } while (shouldSkipDate(result, config) && maxIterations > 0);
+
+  return result;
+}
+
 function HomePage() {
   const { date: initialDate } = indexRoute.useSearch();
   const today = getLocalDateString(new Date());
@@ -91,6 +129,10 @@ function HomePage() {
   }, [initialDate]);
 
   const utils = trpc.useUtils();
+
+  // Fetch config
+  const { data: skipDaysConfig } = trpc.config.getSkipDays.useQuery();
+  const { data: defaultTemplate } = trpc.config.getDefaultTemplate.useQuery();
 
   // Fetch entry for selected date
   const { data: entry, isLoading: isLoadingEntry } = trpc.entries.getByDate.useQuery(
@@ -166,10 +208,19 @@ function HomePage() {
 
   // Sync content when entry changes and reset edit mode
   useEffect(() => {
-    setContent(entry?.content ?? "");
+    if (entry) {
+      setContent(entry.content);
+      setIsEditing(false);
+    } else if (!isLoadingEntry && defaultTemplate) {
+      // No entry exists, pre-fill with default template
+      setContent(defaultTemplate.content);
+      setIsEditing(true); // Start in edit mode for new entries
+    } else {
+      setContent("");
+      setIsEditing(true);
+    }
     setHasChanges(false);
-    setIsEditing(false);
-  }, [entry, selectedDate]);
+  }, [entry, selectedDate, defaultTemplate, isLoadingEntry]);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -201,8 +252,10 @@ function HomePage() {
     }
   };
 
-  const handlePrevDay = () => setSelectedDate(addDays(selectedDate, -1));
-  const handleNextDay = () => setSelectedDate(addDays(selectedDate, 1));
+  const handlePrevDay = () =>
+    setSelectedDate(getNextValidDay(selectedDate, -1, skipDaysConfig));
+  const handleNextDay = () =>
+    setSelectedDate(getNextValidDay(selectedDate, 1, skipDaysConfig));
   const handleToday = () => setSelectedDate(today);
 
   const handleEntryClick = (date: string) => {

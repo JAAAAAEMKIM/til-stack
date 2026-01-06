@@ -8,6 +8,13 @@
       "when": 1767613207123,
       "tag": "0000_rainy_molten_man",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1767682624642,
+      "tag": "0001_huge_champions",
+      "breakpoints": true
     }
   ]
 }

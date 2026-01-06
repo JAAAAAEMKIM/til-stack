@@ -64,3 +64,47 @@ export type DeleteEntryInput = z.infer<typeof deleteEntrySchema>;
 export type ListEntriesInput = z.infer<typeof listEntriesSchema>;
 export type WeeklyInput = z.infer<typeof weeklyInputSchema>;
 export type MonthlyInput = z.infer<typeof monthlyInputSchema>;
+
+// Config validators - Skip days
+export const weekdaySchema = z.number().int().min(0).max(6);
+
+export const addSkipWeekdaySchema = z.object({
+  weekday: weekdaySchema,
+});
+
+export const addSkipDateSchema = z.object({
+  date: dateSchema,
+});
+
+export const removeSkipDaySchema = z.object({
+  id: z.string().min(1),
+});
+
+// Config validators - Templates
+export const createTemplateSchema = z.object({
+  name: z.string().min(1).max(100),
+  content: z.string().min(1),
+});
+
+export const updateTemplateSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1).max(100).optional(),
+  content: z.string().min(1).optional(),
+});
+
+export const deleteTemplateSchema = z.object({
+  id: z.string().min(1),
+});
+
+export const setDefaultTemplateSchema = z.object({
+  id: z.string().nullable(), // null to unset default
+});
+
+// Config types
+export type AddSkipWeekdayInput = z.infer<typeof addSkipWeekdaySchema>;
+export type AddSkipDateInput = z.infer<typeof addSkipDateSchema>;
+export type RemoveSkipDayInput = z.infer<typeof removeSkipDaySchema>;
+export type CreateTemplateInput = z.infer<typeof createTemplateSchema>;
+export type UpdateTemplateInput = z.infer<typeof updateTemplateSchema>;
+export type DeleteTemplateInput = z.infer<typeof deleteTemplateSchema>;
+export type SetDefaultTemplateInput = z.infer<typeof setDefaultTemplateSchema>;

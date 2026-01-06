@@ -32,3 +32,26 @@ export interface MonthlySummary {
   totalEntries: number;
   weeks: WeeklySummary[];
 }
+
+// Config types
+export interface SkipDay {
+  id: string;
+  type: "weekday" | "specific_date";
+  value: string;
+  createdAt: string;
+}
+
+export interface Template {
+  id: string;
+  name: string;
+  content: string;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SkipDaysConfig {
+  weekdays: number[]; // 0-6 (Sunday-Saturday)
+  specificDates: string[]; // YYYY-MM-DD format
+  raw: SkipDay[];
+}

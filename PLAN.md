@@ -174,3 +174,14 @@ typescript
 - **Date model**: One entry per day max, navigate with prev/today/next
 - **Entry UX**: Click any entry in list to jump to that date's editor
 - **Editor**: Plain textarea (markdown rendered only in entry list/view)
+
+## Future Ideas
+
+### Template Variables
+Support dynamic placeholders in templates:
+- `{{date}}` - Current date (YYYY-MM-DD)
+- `{{dayOfWeek}}` - Day name (Monday, Tuesday, etc.)
+- `{{week}}` - Week number of year
+- `{{month}}` - Month name
+
+Templates would be processed at entry creation time, replacing variables with actual values.

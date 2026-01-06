@@ -1,5 +1,5 @@
 import { createRootRoute, Outlet, Link } from "@tanstack/react-router";
-import { BookOpen, Calendar } from "lucide-react";
+import { BookOpen, Calendar, Settings } from "lucide-react";
 
 export const rootRoute = createRootRoute({
   component: () => (
@@ -26,6 +26,13 @@ export const rootRoute = createRootRoute({
             >
               <Calendar className="h-4 w-4" />
               <span className="hidden sm:inline">Monthly</span>
+            </Link>
+            <Link
+              to="/config"
+              className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors [&.active]:bg-accent [&.active]:text-foreground"
+            >
+              <Settings className="h-4 w-4" />
+              <span className="hidden sm:inline">Settings</span>
             </Link>
           </div>
         </nav>
