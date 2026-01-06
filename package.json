@@ -1,0 +1,36 @@
+{
+  "name": "til-stack",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "dotenv -e .env.local -- pnpm -r --parallel dev",
+    "dev:local": "dotenv -e .env.local -- pnpm -r --parallel dev",
+    "build": "pnpm -r build",
+    "build:local": "dotenv -e .env.local -- pnpm -r build",
+    "build:dev": "dotenv -e .env.dev -- pnpm -r build",
+    "build:prod": "dotenv -e .env.prod -- pnpm -r build",
+    "start": "dotenv -e .env.local -- node apps/api/dist/index.js",
+    "start:local": "dotenv -e .env.local -- node apps/api/dist/index.js",
+    "start:dev": "dotenv -e .env.dev -- node apps/api/dist/index.js",
+    "start:prod": "dotenv -e .env.prod -- node apps/api/dist/index.js",
+    "db:migrate": "dotenv -e .env.local -- pnpm --filter @til-stack/api db:migrate",
+    "db:migrate:local": "dotenv -e .env.local -- pnpm --filter @til-stack/api db:migrate",
+    "db:migrate:dev": "dotenv -e .env.dev -- pnpm --filter @til-stack/api db:migrate",
+    "db:migrate:prod": "dotenv -e .env.prod -- pnpm --filter @til-stack/api db:migrate",
+    "lint": "pnpm -r lint"
+  },
+  "devDependencies": {
+    "dotenv-cli": "^11.0.0",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild"
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+*.db
+*.db-wal
+*.db-shm
+
+# Environment files (keep examples)
+.env
+.env.local
+.env.dev
+.env.prod
+!.env.example
+
+# Playwright MCP
+.playwright-mcp/
