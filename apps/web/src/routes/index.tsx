@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ChevronLeft, ChevronRight, Trash2, Save, Loader2, Pencil } from "lucide-react";
+import { ChevronLeft, ChevronRight, Trash2, Save, Loader2, Pencil, Copy, Check, X } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -73,7 +73,15 @@ function HomePage() {
   const [content, setContent] = useState("");
   const [hasChanges, setHasChanges] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleCopy = async (text: string, id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    await navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
 
   // Update selected date when search param changes
   useEffect(() => {
@@ -245,7 +253,7 @@ function HomePage() {
       </div>
 
       {/* Entry Card */}
-      <Card>
+      <Card className="group">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             {entry && !isEditing ? (
@@ -258,10 +266,23 @@ function HomePage() {
                   </span>
                 </div>
                 {!isLoadingEntry && (
-                  <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
-                    <Pencil className="h-4 w-4 mr-2" />
-                    Edit
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+                      onClick={() => handleCopy(entry.content, `main-${entry.id}`)}
+                    >
+                      {copiedId === `main-${entry.id}` ? (
+                        <Check className="h-4 w-4 text-green-500" />
+                      ) : (
+                        <Copy className="h-4 w-4" />
+                      )}
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setIsEditing(true)}>
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                  </div>
                 )}
               </>
             ) : (
@@ -301,24 +322,21 @@ function HomePage() {
               />
               <div className="flex justify-between">
                 <div className="flex gap-2">
-                  {entry && (
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={handleDelete}
-                      disabled={isDeleting}
-                    >
-                      {isDeleting ? (
-                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      ) : (
-                        <Trash2 className="h-4 w-4 mr-2" />
-                      )}
-                      Delete
-                    </Button>
-                  )}
+                  <Button
+                    size="sm"
+                    onClick={handleSave}
+                    disabled={!hasChanges || !content.trim() || isSaving}
+                  >
+                    {isSaving ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <Save className="h-4 w-4 mr-2" />
+                    )}
+                    Save
+                  </Button>
                   {entry && isEditing && (
                     <Button
-                      variant="outline"
+                      variant="secondary"
                       size="sm"
                       onClick={() => {
                         setContent(entry.content);
@@ -326,21 +344,26 @@ function HomePage() {
                         setIsEditing(false);
                       }}
                     >
+                      <X className="h-4 w-4 mr-2" />
                       Cancel
                     </Button>
                   )}
                 </div>
-                <Button
-                  onClick={handleSave}
-                  disabled={!hasChanges || !content.trim() || isSaving}
-                >
-                  {isSaving ? (
-                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  ) : (
-                    <Save className="h-4 w-4 mr-2" />
-                  )}
-                  Save Entry
-                </Button>
+                {entry && (
+                  <Button
+                    variant="destructive"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={handleDelete}
+                    disabled={isDeleting}
+                  >
+                    {isDeleting ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                  </Button>
+                )}
               </div>
             </>
           )}
@@ -363,6 +386,8 @@ function HomePage() {
                 key={entryItem.id}
                 entry={entryItem}
                 onClick={() => handleEntryClick(entryItem.date)}
+                onCopy={(e) => handleCopy(entryItem.content, entryItem.id, e)}
+                isCopied={copiedId === entryItem.id}
               />
             ))}
             <div ref={loadMoreRef} className="h-4" />
@@ -386,20 +411,36 @@ interface EntryCardProps {
     createdAt: string;
   };
   onClick: () => void;
+  onCopy: (e: React.MouseEvent) => void;
+  isCopied: boolean;
 }
 
-function EntryCard({ entry, onClick }: EntryCardProps) {
+function EntryCard({ entry, onClick, onCopy, isCopied }: EntryCardProps) {
   return (
     <Card
-      className="cursor-pointer transition-all hover:shadow-md"
+      className="group cursor-pointer transition-all hover:shadow-md"
       onClick={onClick}
     >
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-medium">{entry.date}</CardTitle>
-          <span className="text-xs text-muted-foreground">
-            {getDateLabel(entry.date)}
-          </span>
+          <div className="flex items-center gap-3">
+            <CardTitle className="text-sm font-medium">{entry.date}</CardTitle>
+            <span className="text-xs text-muted-foreground">
+              {getDateLabel(entry.date)}
+            </span>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+            onClick={onCopy}
+          >
+            {isCopied ? (
+              <Check className="h-4 w-4 text-green-500" />
+            ) : (
+              <Copy className="h-4 w-4" />
+            )}
+          </Button>
         </div>
       </CardHeader>
       <CardContent className="pt-0">
