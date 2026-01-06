@@ -8,7 +8,7 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, Pencil } from "lucide-react";
 import { rootRoute } from "./__root";
 import { trpc } from "@/lib/trpc";
 import ReactMarkdown from "react-markdown";
@@ -84,6 +84,7 @@ function MonthlyPage() {
   const today = new Date();
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
   const monthYear = new Date(currentYear, currentMonth).toLocaleDateString("en-US", {
     month: "long",
@@ -145,9 +146,17 @@ function MonthlyPage() {
   };
 
   const handleDayClick = (dateStr: string) => {
-    // Navigate to main page - we'll use search params to pass the date
+    // Toggle selection: if already selected, deselect; otherwise select
+    setSelectedDate((prev) => (prev === dateStr ? null : dateStr));
+  };
+
+  const handleEditEntry = (dateStr: string) => {
+    // Navigate to main page for editing
     navigate({ to: "/", search: { date: dateStr } });
   };
+
+  // Get the entry for the selected date
+  const selectedEntry = selectedDate ? entriesByDate.get(selectedDate) : null;
 
   const isCurrentMonth =
     currentYear === today.getFullYear() && currentMonth === today.getMonth();
@@ -177,7 +186,7 @@ function MonthlyPage() {
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-lg">Calendar</CardTitle>
-          <CardDescription>Click a day to view or edit its entry</CardDescription>
+          <CardDescription>Click a day to view its entry below</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -205,6 +214,7 @@ function MonthlyPage() {
                 const hasEntry = datesWithEntries.has(dateStr);
                 const isToday = dateStr === todayStr;
                 const isFuture = dateStr > todayStr;
+                const isSelected = dateStr === selectedDate;
 
                 return (
                   <button
@@ -215,8 +225,9 @@ function MonthlyPage() {
                       aspect-square flex flex-col items-center justify-center rounded-lg
                       text-sm transition-colors relative
                       ${isFuture ? "text-muted-foreground/50 cursor-not-allowed" : "hover:bg-accent cursor-pointer"}
-                      ${isToday ? "bg-primary text-primary-foreground hover:bg-primary/90" : ""}
-                      ${hasEntry && !isToday ? "bg-accent" : ""}
+                      ${isToday && !isSelected ? "bg-primary text-primary-foreground hover:bg-primary/90" : ""}
+                      ${isSelected ? "ring-2 ring-primary ring-offset-2 bg-accent" : ""}
+                      ${hasEntry && !isToday && !isSelected ? "bg-accent" : ""}
                     `}
                   >
                     <span>{dayNum}</span>
@@ -231,6 +242,49 @@ function MonthlyPage() {
                 );
               })}
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Selected Entry Detail */}
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-lg">
+                {selectedDate || "Select a date"}
+              </CardTitle>
+              <CardDescription>
+                {selectedDate
+                  ? `${formatDateShort(selectedDate)}${selectedEntry ? " • Entry available" : " • No entry"}`
+                  : "Click on a calendar date to view its entry"}
+              </CardDescription>
+            </div>
+            {selectedDate && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleEditEntry(selectedDate)}
+              >
+                <Pencil className="h-4 w-4 mr-1" />
+                {selectedEntry ? "Edit" : "Create"}
+              </Button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {selectedEntry ? (
+            <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:mt-2 prose-headings:mb-2 prose-p:my-1 prose-ul:my-1 prose-ol:my-1">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {selectedEntry.content}
+              </ReactMarkdown>
+            </div>
+          ) : (
+            <p className="text-muted-foreground text-center py-4">
+              {selectedDate
+                ? "No entry for this date. Click \"Create\" to add one."
+                : "Your selected entry will appear here."}
+            </p>
           )}
         </CardContent>
       </Card>
