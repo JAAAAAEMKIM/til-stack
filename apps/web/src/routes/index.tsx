@@ -3,7 +3,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -77,10 +76,8 @@ function shouldSkipDate(
 ): boolean {
   if (!config) return false;
 
-  // Check specific dates
   if (config.specificDates.includes(dateStr)) return true;
 
-  // Check weekday
   const date = new Date(dateStr + "T00:00:00");
   const weekday = date.getDay();
   if (config.weekdays.includes(weekday)) return true;
@@ -94,7 +91,7 @@ function getNextValidDay(
   config: SkipDaysConfig | undefined
 ): string {
   let result = dateStr;
-  let maxIterations = 365; // Safety limit
+  let maxIterations = 365;
 
   do {
     result = addDays(result, direction);
@@ -104,22 +101,261 @@ function getNextValidDay(
   return result;
 }
 
+// =============================================================================
+// NewEntryCard - For creating new entries (always in edit mode)
+// =============================================================================
+interface NewEntryCardProps {
+  date: string;
+  defaultTemplate?: string;
+}
+
+function NewEntryCard({ date, defaultTemplate }: NewEntryCardProps) {
+  const [content, setContent] = useState(defaultTemplate || "");
+  const [hasChanges, setHasChanges] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const utils = trpc.useUtils();
+
+  const upsertMutation = trpc.entries.upsert.useMutation({
+    onSettled: () => {
+      utils.entries.getByDate.invalidate();
+      utils.entries.list.invalidate();
+    },
+  });
+
+  // Auto-resize textarea
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = "auto";
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    }
+  }, [content]);
+
+  const handleContentChange = (value: string) => {
+    setContent(value);
+    setHasChanges(value !== (defaultTemplate || ""));
+  };
+
+  const handleSave = () => {
+    if (!content.trim()) return;
+    upsertMutation.mutate({ date, content });
+    setHasChanges(false);
+  };
+
+  const isSaving = upsertMutation.isPending;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-3">
+          <CardTitle className="text-sm font-medium">{date}</CardTitle>
+          <span className="text-xs text-muted-foreground">New Entry</span>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <Textarea
+          ref={textareaRef}
+          value={content}
+          onChange={(e) => handleContentChange(e.target.value)}
+          placeholder="# Today I learned..."
+          className="min-h-[80px] resize-none font-mono text-sm overflow-hidden"
+        />
+        <div className="flex justify-between">
+          <Button
+            size="sm"
+            onClick={handleSave}
+            disabled={!hasChanges || !content.trim() || isSaving}
+          >
+            {isSaving ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            ) : (
+              <Save className="h-4 w-4 mr-2" />
+            )}
+            Save
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// =============================================================================
+// EntryView - For viewing/editing existing entries (has internal isEditing state)
+// =============================================================================
+interface EntryViewProps {
+  entry: {
+    id: string;
+    date: string;
+    content: string;
+    createdAt: string;
+    updatedAt: string;
+  };
+}
+
+function EntryView({ entry }: EntryViewProps) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [content, setContent] = useState(entry.content);
+  const [hasChanges, setHasChanges] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const utils = trpc.useUtils();
+
+  const upsertMutation = trpc.entries.upsert.useMutation({
+    onSettled: () => {
+      utils.entries.getByDate.invalidate();
+      utils.entries.list.invalidate();
+    },
+  });
+
+  const deleteMutation = trpc.entries.delete.useMutation({
+    onSettled: () => {
+      utils.entries.getByDate.invalidate();
+      utils.entries.list.invalidate();
+    },
+  });
+
+  // Auto-resize textarea
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = "auto";
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    }
+  }, [content]);
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(entry.content);
+    setCopiedId(entry.id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const handleContentChange = (value: string) => {
+    setContent(value);
+    setHasChanges(value !== entry.content);
+  };
+
+  const handleSave = () => {
+    if (!content.trim()) return;
+    upsertMutation.mutate({ date: entry.date, content });
+    setHasChanges(false);
+    setIsEditing(false);
+  };
+
+  const handleCancel = () => {
+    setContent(entry.content);
+    setHasChanges(false);
+    setIsEditing(false);
+  };
+
+  const handleDelete = () => {
+    if (confirm("Are you sure you want to delete this entry?")) {
+      deleteMutation.mutate({ date: entry.date });
+    }
+  };
+
+  const isSaving = upsertMutation.isPending;
+  const isDeleting = deleteMutation.isPending;
+
+  return (
+    <Card className="group">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between min-h-[40px]">
+          <div className="flex items-center gap-3">
+            <CardTitle className="text-sm font-medium">{entry.date}</CardTitle>
+            <span className="text-xs text-muted-foreground">
+              {isEditing ? "Editing" : getDateLabel(entry.date)}
+            </span>
+          </div>
+          {!isEditing && (
+            <div className="flex items-center gap-1 h-8">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-200"
+                onClick={handleCopy}
+              >
+                {copiedId === entry.id ? (
+                  <Check className="h-4 w-4 text-green-500" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 transition-opacity duration-200"
+                onClick={() => setIsEditing(true)}
+              >
+                <Pencil className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isEditing ? (
+          <>
+            <Textarea
+              ref={textareaRef}
+              value={content}
+              onChange={(e) => handleContentChange(e.target.value)}
+              placeholder="# Today I learned..."
+              className="min-h-[80px] resize-none font-mono text-sm overflow-hidden"
+            />
+            <div className="flex justify-between">
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  onClick={handleSave}
+                  disabled={!hasChanges || !content.trim() || isSaving}
+                >
+                  {isSaving ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <Save className="h-4 w-4 mr-2" />
+                  )}
+                  Save
+                </Button>
+                <Button variant="secondary" size="sm" onClick={handleCancel}>
+                  <X className="h-4 w-4 mr-2" />
+                  Cancel
+                </Button>
+              </div>
+              <Button
+                variant="destructive"
+                size="icon"
+                className="h-8 w-8"
+                onClick={handleDelete}
+                disabled={isDeleting}
+              >
+                {isDeleting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
+          </>
+        ) : (
+          <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:mt-2 prose-headings:mb-1 prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-pre:my-2 prose-pre:bg-muted">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+              {entry.content}
+            </ReactMarkdown>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// =============================================================================
+// HomePage - Main component
+// =============================================================================
 function HomePage() {
   const { date: initialDate } = indexRoute.useSearch();
   const today = getLocalDateString(new Date());
   const [selectedDate, setSelectedDate] = useState(initialDate || today);
-  const [content, setContent] = useState("");
-  const [hasChanges, setHasChanges] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const handleCopy = async (text: string, id: string, e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    await navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
-  };
 
   // Update selected date when search param changes
   useEffect(() => {
@@ -128,14 +364,12 @@ function HomePage() {
     }
   }, [initialDate]);
 
-  const utils = trpc.useUtils();
-
   // Fetch config
   const { data: skipDaysConfig } = trpc.config.getSkipDays.useQuery();
   const { data: defaultTemplate } = trpc.config.getDefaultTemplate.useQuery();
 
   // Fetch entry for selected date
-  const { data: entry, isLoading: isLoadingEntry } = trpc.entries.getByDate.useQuery(
+  const { data: entry, isFetching: isLoadingEntry } = trpc.entries.getByDate.useQuery(
     { date: selectedDate },
     { staleTime: 0 }
   );
@@ -154,102 +388,11 @@ function HomePage() {
     }
   );
 
-  // Upsert mutation with optimistic update
-  const upsertMutation = trpc.entries.upsert.useMutation({
-    onMutate: async (newEntry) => {
-      await utils.entries.getByDate.cancel({ date: newEntry.date });
-      await utils.entries.list.cancel();
-
-      const previousEntry = utils.entries.getByDate.getData({ date: newEntry.date });
-
-      utils.entries.getByDate.setData({ date: newEntry.date }, (old) => ({
-        id: old?.id ?? "temp-id",
-        date: newEntry.date,
-        content: newEntry.content,
-        createdAt: old?.createdAt ?? new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      }));
-
-      return { previousEntry };
-    },
-    onError: (_err, newEntry, context) => {
-      if (context?.previousEntry !== undefined) {
-        utils.entries.getByDate.setData({ date: newEntry.date }, context.previousEntry);
-      }
-    },
-    onSettled: () => {
-      utils.entries.getByDate.invalidate();
-      utils.entries.list.invalidate();
-    },
-  });
-
-  // Delete mutation with optimistic update
-  const deleteMutation = trpc.entries.delete.useMutation({
-    onMutate: async ({ date }) => {
-      await utils.entries.getByDate.cancel({ date });
-      await utils.entries.list.cancel();
-
-      const previousEntry = utils.entries.getByDate.getData({ date });
-
-      utils.entries.getByDate.setData({ date }, null);
-
-      return { previousEntry };
-    },
-    onError: (_err, { date }, context) => {
-      if (context?.previousEntry) {
-        utils.entries.getByDate.setData({ date }, context.previousEntry);
-      }
-    },
-    onSettled: () => {
-      utils.entries.getByDate.invalidate();
-      utils.entries.list.invalidate();
-    },
-  });
-
-  // Sync content when entry changes and reset edit mode
-  useEffect(() => {
-    if (entry) {
-      setContent(entry.content);
-      setIsEditing(false);
-    } else if (!isLoadingEntry && defaultTemplate) {
-      // No entry exists, pre-fill with default template
-      setContent(defaultTemplate.content);
-      setIsEditing(true); // Start in edit mode for new entries
-    } else {
-      setContent("");
-      setIsEditing(true);
-    }
-    setHasChanges(false);
-  }, [entry, selectedDate, defaultTemplate, isLoadingEntry]);
-
-  // Auto-resize textarea
-  useEffect(() => {
-    const textarea = textareaRef.current;
-    if (textarea) {
-      textarea.style.height = "auto";
-      textarea.style.height = `${textarea.scrollHeight}px`;
-    }
-  }, [content]);
-
-  const handleContentChange = (value: string) => {
-    setContent(value);
-    setHasChanges(value !== (entry?.content ?? ""));
-  };
-
-  const handleSave = () => {
-    if (!content.trim()) return;
-    upsertMutation.mutate({ date: selectedDate, content });
-    setHasChanges(false);
-    setIsEditing(false);
-  };
-
-  const handleDelete = () => {
-    if (!entry) return;
-    if (confirm("Are you sure you want to delete this entry?")) {
-      deleteMutation.mutate({ date: selectedDate });
-      setContent("");
-      setHasChanges(false);
-    }
+  const handleCopy = async (text: string, id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    await navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
   };
 
   const handlePrevDay = () =>
@@ -280,11 +423,8 @@ function HomePage() {
   );
 
   const allEntries = entriesData?.pages.flatMap((page) => page.items) ?? [];
-  // Filter entries to show only those before the selected date (the "stack" below current date)
   const stackEntries = allEntries.filter((e) => e.date < selectedDate);
   const isToday = selectedDate === today;
-  const isSaving = upsertMutation.isPending;
-  const isDeleting = deleteMutation.isPending;
 
   return (
     <div className="space-y-6">
@@ -305,123 +445,25 @@ function HomePage() {
         </Button>
       </div>
 
-      {/* Entry Card */}
-      <Card className="group">
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            {entry && !isEditing ? (
-              /* Read mode - show date like stack entries */
-              <>
-                <div className="flex items-center gap-3">
-                  <CardTitle className="text-sm font-medium">{selectedDate}</CardTitle>
-                  <span className="text-xs text-muted-foreground">
-                    {getDateLabel(selectedDate)}
-                  </span>
-                </div>
-                {!isLoadingEntry && (
-                  <div className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
-                      onClick={() => handleCopy(entry.content, `main-${entry.id}`)}
-                    >
-                      {copiedId === `main-${entry.id}` ? (
-                        <Check className="h-4 w-4 text-green-500" />
-                      ) : (
-                        <Copy className="h-4 w-4" />
-                      )}
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setIsEditing(true)}>
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                  </div>
-                )}
-              </>
-            ) : (
-              /* Edit/New mode */
-              <div>
-                <CardTitle className="text-lg">
-                  {entry ? "Edit Entry" : "New Entry"}
-                </CardTitle>
-                <CardDescription>
-                  Write your TIL, daily scrum notes, or diary entry in markdown
-                </CardDescription>
-              </div>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {isLoadingEntry ? (
+      {/* Entry Card - Loading / Entry / New Entry */}
+      {isLoadingEntry ? (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-3">
+              <CardTitle className="text-sm font-medium">{selectedDate}</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent>
             <div className="flex items-center justify-center h-[200px]">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
-          ) : entry && !isEditing ? (
-            /* Read Mode */
-            <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:mt-2 prose-headings:mb-1 prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-pre:my-2 prose-pre:bg-muted">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-                {entry.content}
-              </ReactMarkdown>
-            </div>
-          ) : (
-            /* Edit Mode */
-            <>
-              <Textarea
-                ref={textareaRef}
-                value={content}
-                onChange={(e) => handleContentChange(e.target.value)}
-                placeholder="# Today I learned..."
-                className="min-h-[80px] resize-none font-mono text-sm overflow-hidden"
-              />
-              <div className="flex justify-between">
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    onClick={handleSave}
-                    disabled={!hasChanges || !content.trim() || isSaving}
-                  >
-                    {isSaving ? (
-                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                    ) : (
-                      <Save className="h-4 w-4 mr-2" />
-                    )}
-                    Save
-                  </Button>
-                  {entry && isEditing && (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => {
-                        setContent(entry.content);
-                        setHasChanges(false);
-                        setIsEditing(false);
-                      }}
-                    >
-                      <X className="h-4 w-4 mr-2" />
-                      Cancel
-                    </Button>
-                  )}
-                </div>
-                {entry && (
-                  <Button
-                    variant="destructive"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={handleDelete}
-                    disabled={isDeleting}
-                  >
-                    {isDeleting ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="h-4 w-4" />
-                    )}
-                  </Button>
-                )}
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      ) : entry ? (
+        <EntryView key={entry.id} entry={entry} />
+      ) : (
+        <NewEntryCard key={selectedDate} date={selectedDate} defaultTemplate={defaultTemplate?.content} />
+      )}
 
       {/* Stack - entries before selected date */}
       <div className="space-y-4">
@@ -435,7 +477,7 @@ function HomePage() {
         ) : (
           <div className="space-y-3">
             {stackEntries.map((entryItem) => (
-              <EntryCard
+              <StackEntryCard
                 key={entryItem.id}
                 entry={entryItem}
                 onClick={() => handleEntryClick(entryItem.date)}
@@ -456,7 +498,10 @@ function HomePage() {
   );
 }
 
-interface EntryCardProps {
+// =============================================================================
+// StackEntryCard - For displaying entries in the stack (read-only preview)
+// =============================================================================
+interface StackEntryCardProps {
   entry: {
     id: string;
     date: string;
@@ -468,7 +513,7 @@ interface EntryCardProps {
   isCopied: boolean;
 }
 
-function EntryCard({ entry, onClick, onCopy, isCopied }: EntryCardProps) {
+function StackEntryCard({ entry, onClick, onCopy, isCopied }: StackEntryCardProps) {
   return (
     <Card
       className="group cursor-pointer transition-all hover:shadow-md"
