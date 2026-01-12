@@ -18,7 +18,16 @@ declare module "@tanstack/react-router" {
 }
 
 function App() {
-  const [queryClient] = useState(() => new QueryClient());
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            refetchOnWindowFocus: false,
+          },
+        },
+      })
+  );
   const [trpcClient] = useState(() => createTRPCClient());
 
   return (
