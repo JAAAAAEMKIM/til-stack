@@ -1,5 +1,5 @@
 import { createRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Card,
   CardContent,
@@ -9,9 +9,27 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Trash2, Plus, Star, Loader2, Bell, X, Pencil, Monitor, Sun, Moon } from "lucide-react";
+import {
+  Trash2,
+  Plus,
+  Star,
+  Loader2,
+  Bell,
+  X,
+  Pencil,
+  Monitor,
+  Sun,
+  Moon,
+  Sparkles,
+  Download,
+  Check,
+  AlertCircle,
+  RotateCcw,
+} from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useTheme, type Theme } from "@/lib/theme";
+import { useAIConfig, AI_BACKENDS, WEBLLM_MODELS, type AIBackend } from "@/lib/ai-config";
+import { useSummarizer, type SummarizerStatus } from "@/lib/summarizer";
 import { rootRoute } from "./__root";
 
 export const configRoute = createRoute({
@@ -36,6 +54,7 @@ function ConfigPage() {
       <h1 className="text-2xl font-bold">Settings</h1>
 
       <AppearanceSection />
+      <AISection />
       <SkipDaysSection />
       <TemplatesSection />
       <NotificationsSection />
@@ -72,6 +91,238 @@ function AppearanceSection() {
             </Button>
           ))}
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function getStatusLabel(status: SummarizerStatus): { label: string; color: string } {
+  switch (status) {
+    case "ready":
+      return { label: "Ready", color: "text-green-600" };
+    case "idle":
+      return { label: "Not loaded", color: "text-yellow-600" };
+    case "loading":
+      return { label: "Loading...", color: "text-blue-600" };
+    case "generating":
+      return { label: "Generating...", color: "text-blue-600" };
+    case "unavailable":
+    default:
+      return { label: "Not available", color: "text-muted-foreground" };
+  }
+}
+
+function AISection() {
+  const {
+    config,
+    setEnabled,
+    setBackend,
+    setWebllmModel,
+    setWeeklyPrompt,
+    resetPrompt,
+    DEFAULT_WEEKLY_PROMPT,
+  } = useAIConfig();
+  const { status, progress, progressText, initDownload } = useSummarizer();
+  const [promptValue, setPromptValue] = useState(config.weeklyPrompt);
+  const [hasChanges, setHasChanges] = useState(false);
+
+  // Sync promptValue when config changes
+  useEffect(() => {
+    setPromptValue(config.weeklyPrompt);
+    setHasChanges(false);
+  }, [config.weeklyPrompt]);
+
+  const handlePromptChange = (value: string) => {
+    setPromptValue(value);
+    setHasChanges(value !== config.weeklyPrompt);
+  };
+
+  const handleSavePrompt = () => {
+    setWeeklyPrompt(promptValue);
+    setHasChanges(false);
+  };
+
+  const handleResetPrompt = () => {
+    resetPrompt();
+    setPromptValue(DEFAULT_WEEKLY_PROMPT);
+    setHasChanges(false);
+  };
+
+  const statusInfo = getStatusLabel(status);
+  const isModelReady = status === "ready";
+  const isLoading = status === "loading";
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Sparkles className="h-5 w-5" />
+          AI Features
+        </CardTitle>
+        <CardDescription>
+          Generate AI summaries for your weekly entries
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {/* Enable toggle */}
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-sm font-medium">Enable AI Summaries</div>
+            <div className="text-xs text-muted-foreground">
+              Show AI-generated summaries in weekly view
+            </div>
+          </div>
+          <Button
+            variant={config.enabled ? "default" : "outline"}
+            size="sm"
+            onClick={() => setEnabled(!config.enabled)}
+          >
+            {config.enabled ? (
+              <>
+                <Check className="h-4 w-4 mr-1" />
+                Enabled
+              </>
+            ) : (
+              "Disabled"
+            )}
+          </Button>
+        </div>
+
+        {config.enabled && (
+          <>
+            {/* Backend Selection */}
+            <div className="space-y-3">
+              <label className="text-sm font-medium">AI Backend</label>
+              <div className="grid gap-2">
+                {AI_BACKENDS.map((backend) => (
+                  <button
+                    key={backend.id}
+                    onClick={() => !backend.disabled && setBackend(backend.id)}
+                    disabled={backend.disabled}
+                    className={`
+                      flex items-center justify-between p-3 rounded-lg border text-left
+                      transition-colors
+                      ${backend.disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:bg-accent"}
+                      ${config.backend === backend.id ? "border-primary bg-accent" : "border-border"}
+                    `}
+                  >
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium">{backend.name}</span>
+                        {backend.disabled && (
+                          <span className="text-xs bg-muted px-1.5 py-0.5 rounded">
+                            WIP
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {backend.description}
+                      </p>
+                    </div>
+                    {config.backend === backend.id && !backend.disabled && (
+                      <Check className="h-4 w-4 text-primary" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* WebLLM Model Selection */}
+            {config.backend === "webllm" && (
+              <div className="space-y-3">
+                <label className="text-sm font-medium">WebLLM Model</label>
+                <div className="grid gap-2">
+                  {WEBLLM_MODELS.map((model) => (
+                    <button
+                      key={model.id}
+                      onClick={() => setWebllmModel(model.id)}
+                      className={`
+                        flex items-center justify-between p-3 rounded-lg border text-left
+                        transition-colors cursor-pointer hover:bg-accent
+                        ${config.webllmModel === model.id ? "border-primary bg-accent" : "border-border"}
+                      `}
+                    >
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">{model.name}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {model.description}
+                        </p>
+                      </div>
+                      {config.webllmModel === model.id && (
+                        <Check className="h-4 w-4 text-primary" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Status */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-sm">Status:</span>
+                <span className={`text-sm font-medium ${statusInfo.color}`}>
+                  {statusInfo.label}
+                </span>
+                {isLoading && progress > 0 && (
+                  <span className="text-xs text-muted-foreground">
+                    ({Math.round(progress * 100)}%)
+                  </span>
+                )}
+              </div>
+              {status === "idle" && (
+                <Button size="sm" variant="outline" onClick={initDownload}>
+                  <Download className="h-4 w-4 mr-1" />
+                  Load Model
+                </Button>
+              )}
+              {isLoading && (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              )}
+            </div>
+
+            {/* Loading progress text */}
+            {isLoading && progressText && (
+              <p className="text-xs text-muted-foreground truncate">
+                {progressText}
+              </p>
+            )}
+
+            {/* Weekly prompt */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">Summary Prompt</label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleResetPrompt}
+                  className="h-7 text-xs"
+                >
+                  <RotateCcw className="h-3 w-3 mr-1" />
+                  Reset
+                </Button>
+              </div>
+              <Textarea
+                value={promptValue}
+                onChange={(e) => handlePromptChange(e.target.value)}
+                placeholder="Enter your custom prompt..."
+                className="min-h-[100px] font-mono text-sm"
+              />
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">
+                  This context helps the AI understand your entries
+                </p>
+                {hasChanges && (
+                  <Button size="sm" onClick={handleSavePrompt}>
+                    Save Prompt
+                  </Button>
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </CardContent>
     </Card>
   );

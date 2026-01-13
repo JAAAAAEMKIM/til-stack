@@ -14,6 +14,7 @@ import { trpc } from "@/lib/trpc";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Entry } from "@til-stack/shared";
+import { AISummary } from "@/components/ai-summary";
 
 export const monthlyRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -380,6 +381,8 @@ interface WeekSummaryProps {
 function WeekSummary({ weekStart, weekEnd, entries, onDayClick }: WeekSummaryProps) {
   const [expanded, setExpanded] = useState(false);
 
+  const weekContext = `Week of ${formatDateShort(weekStart)} - ${formatDateShort(weekEnd)}`;
+
   return (
     <div className="border rounded-lg p-3">
       <button
@@ -402,25 +405,31 @@ function WeekSummary({ weekStart, weekEnd, entries, onDayClick }: WeekSummaryPro
       </button>
 
       {expanded && entries.length > 0 && (
-        <div className="mt-3 space-y-3 border-t pt-3">
-          {entries.map((entry) => (
-            <button
-              key={entry.id}
-              onClick={() => onDayClick(entry.date)}
-              className="w-full text-left p-2 rounded hover:bg-accent transition-colors"
-            >
-              <div className="text-xs font-medium text-muted-foreground mb-1">
-                {entry.date}
-              </div>
-              <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:text-sm prose-headings:mt-1 prose-headings:mb-1 prose-p:my-0.5 prose-ul:my-0.5 prose-ol:my-0.5">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {entry.content.length > 300
-                    ? entry.content.slice(0, 300) + "..."
-                    : entry.content}
-                </ReactMarkdown>
-              </div>
-            </button>
-          ))}
+        <div className="mt-3 border-t pt-3">
+          {/* AI Summary - auto-starts when expanded */}
+          <AISummary entries={entries} context={weekContext} autoStart />
+
+          {/* Entry list */}
+          <div className="space-y-3">
+            {entries.map((entry) => (
+              <button
+                key={entry.id}
+                onClick={() => onDayClick(entry.date)}
+                className="w-full text-left p-2 rounded hover:bg-accent transition-colors"
+              >
+                <div className="text-xs font-medium text-muted-foreground mb-1">
+                  {entry.date}
+                </div>
+                <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:text-sm prose-headings:mt-1 prose-headings:mb-1 prose-p:my-0.5 prose-ul:my-0.5 prose-ol:my-0.5">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {entry.content.length > 300
+                      ? entry.content.slice(0, 300) + "..."
+                      : entry.content}
+                  </ReactMarkdown>
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

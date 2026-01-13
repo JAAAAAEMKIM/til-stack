@@ -9,6 +9,7 @@
     "preview": "rspack serve --mode production"
   },
   "dependencies": {
+    "@mlc-ai/web-llm": "^0.2.80",
     "@radix-ui/react-slot": "^1.2.4",
     "@tailwindcss/typography": "^0.5.19",
     "@tanstack/react-query": "^5.64.1",
