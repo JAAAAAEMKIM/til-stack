@@ -55,3 +55,18 @@ export interface SkipDaysConfig {
   specificDates: string[]; // YYYY-MM-DD format
   raw: SkipDay[];
 }
+
+export type DayOfWeek = "sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat";
+
+export interface Webhook {
+  id: string;
+  name: string;
+  url: string;
+  message: string;
+  time: string; // HH:MM format
+  days: DayOfWeek[];
+  timezone: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}

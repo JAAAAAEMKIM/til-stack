@@ -1,0 +1,1 @@
+ALTER TABLE `webhooks` ADD `message` text DEFAULT '⏰ Time to write your TIL!' NOT NULL;

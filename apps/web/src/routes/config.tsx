@@ -14,7 +14,7 @@ import {
   Plus,
   Star,
   Loader2,
-  Bell,
+  Webhook,
   X,
   Pencil,
   Monitor,
@@ -24,6 +24,8 @@ import {
   Download,
   Check,
   RotateCcw,
+  Play,
+  Power,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useTheme, type Theme } from "@/lib/theme";
@@ -56,7 +58,7 @@ function ConfigPage() {
       <AISection />
       <SkipDaysSection />
       <TemplatesSection />
-      <NotificationsSection />
+      <WebhooksSection />
     </div>
   );
 }
@@ -718,20 +720,516 @@ function TemplatesSection() {
   );
 }
 
-function NotificationsSection() {
+const DAYS_OF_WEEK = [
+  { value: "sun", label: "Sun" },
+  { value: "mon", label: "Mon" },
+  { value: "tue", label: "Tue" },
+  { value: "wed", label: "Wed" },
+  { value: "thu", label: "Thu" },
+  { value: "fri", label: "Fri" },
+  { value: "sat", label: "Sat" },
+] as const;
+
+type DayOfWeek = (typeof DAYS_OF_WEEK)[number]["value"];
+
+const COMMON_TIMEZONES = [
+  "UTC",
+  "Asia/Seoul",
+  "Asia/Tokyo",
+  "Asia/Shanghai",
+  "America/New_York",
+  "America/Los_Angeles",
+  "Europe/London",
+  "Europe/Paris",
+];
+
+const MAX_WEBHOOKS = 5;
+
+function WebhooksSection() {
+  const utils = trpc.useUtils();
+  const { data: webhooks, isLoading } = trpc.webhooks.list.useQuery();
+  const [isCreating, setIsCreating] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [testingId, setTestingId] = useState<string | null>(null);
+
+  const DEFAULT_MESSAGE = "⏰ Time to write your TIL!";
+
+  // Form state for creating new webhook
+  const [newWebhook, setNewWebhook] = useState({
+    name: "",
+    url: "",
+    message: DEFAULT_MESSAGE,
+    time: "09:00",
+    days: ["mon", "tue", "wed", "thu", "fri"] as DayOfWeek[],
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+    enabled: true,
+  });
+
+  // Form state for editing
+  const [editForm, setEditForm] = useState({
+    name: "",
+    url: "",
+    message: "",
+    time: "",
+    days: [] as DayOfWeek[],
+    timezone: "",
+    enabled: true,
+  });
+
+  const createMutation = trpc.webhooks.create.useMutation({
+    onSuccess: () => {
+      utils.webhooks.list.invalidate();
+      setNewWebhook({
+        name: "",
+        url: "",
+        message: DEFAULT_MESSAGE,
+        time: "09:00",
+        days: ["mon", "tue", "wed", "thu", "fri"],
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+        enabled: true,
+      });
+      setIsCreating(false);
+    },
+  });
+
+  const updateMutation = trpc.webhooks.update.useMutation({
+    onSuccess: () => {
+      utils.webhooks.list.invalidate();
+      setEditingId(null);
+    },
+  });
+
+  const deleteMutation = trpc.webhooks.delete.useMutation({
+    onSuccess: () => utils.webhooks.list.invalidate(),
+  });
+
+  const testMutation = trpc.webhooks.test.useMutation({
+    onSuccess: (data) => {
+      setTestingId(null);
+      if (data.success) {
+        alert("Webhook test sent successfully!");
+      } else {
+        alert("Webhook test failed. Check the URL and try again.");
+      }
+    },
+    onError: () => {
+      setTestingId(null);
+      alert("Webhook test failed. Check the URL and try again.");
+    },
+  });
+
+  const toggleDay = (
+    days: DayOfWeek[],
+    day: DayOfWeek,
+    setDays: (days: DayOfWeek[]) => void
+  ) => {
+    if (days.includes(day)) {
+      if (days.length > 1) {
+        setDays(days.filter((d) => d !== day));
+      }
+    } else {
+      setDays([...days, day]);
+    }
+  };
+
+  const startEdit = (webhook: NonNullable<typeof webhooks>[number]) => {
+    setEditingId(webhook.id);
+    setEditForm({
+      name: webhook.name,
+      url: webhook.url,
+      message: webhook.message,
+      time: webhook.time,
+      days: webhook.days as DayOfWeek[],
+      timezone: webhook.timezone,
+      enabled: webhook.enabled,
+    });
+  };
+
+  const handleTest = (id: string) => {
+    setTestingId(id);
+    testMutation.mutate({ id });
+  };
+
+  const handleToggleEnabled = (webhook: NonNullable<typeof webhooks>[number]) => {
+    updateMutation.mutate({ id: webhook.id, enabled: !webhook.enabled });
+  };
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="py-8 flex justify-center">
+          <Loader2 className="animate-spin" />
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Bell className="h-5 w-5" />
-          Notifications
+          <Webhook className="h-5 w-5" />
+          Webhooks
+          <span className="text-xs font-normal text-muted-foreground">
+            ({webhooks?.length ?? 0}/{MAX_WEBHOOKS})
+          </span>
         </CardTitle>
-        <CardDescription>Configure notification preferences</CardDescription>
+        <CardDescription>
+          Schedule webhook notifications for Slack, Discord, or other services
+        </CardDescription>
+        {!isCreating && (
+          <Button
+            size="sm"
+            className="w-fit mt-2"
+            onClick={() => setIsCreating(true)}
+            disabled={(webhooks?.length ?? 0) >= MAX_WEBHOOKS}
+          >
+            <Plus className="h-4 w-4 mr-1" /> New Webhook
+          </Button>
+        )}
+        {(webhooks?.length ?? 0) >= MAX_WEBHOOKS && !isCreating && (
+          <p className="text-xs text-muted-foreground">
+            Maximum of {MAX_WEBHOOKS} webhooks reached. Delete one to add more.
+          </p>
+        )}
       </CardHeader>
-      <CardContent>
-        <p className="text-sm text-muted-foreground text-center py-8">
-          Coming soon...
-        </p>
+      <CardContent className="space-y-4">
+        {/* Create new webhook form */}
+        {isCreating && (
+          <div className="border rounded-lg p-4 space-y-4">
+            <input
+              type="text"
+              placeholder="Webhook name (e.g., Slack Morning)"
+              value={newWebhook.name}
+              onChange={(e) =>
+                setNewWebhook((prev) => ({ ...prev, name: e.target.value }))
+              }
+              className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+            />
+            <input
+              type="url"
+              placeholder="Webhook URL"
+              value={newWebhook.url}
+              onChange={(e) =>
+                setNewWebhook((prev) => ({ ...prev, url: e.target.value }))
+              }
+              className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm font-mono"
+            />
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">
+                Message
+              </label>
+              <input
+                type="text"
+                placeholder="Custom notification message"
+                value={newWebhook.message}
+                onChange={(e) =>
+                  setNewWebhook((prev) => ({ ...prev, message: e.target.value }))
+                }
+                maxLength={500}
+                className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+              />
+            </div>
+            <div className="flex gap-4 flex-wrap">
+              <div className="flex-1 min-w-[120px]">
+                <label className="text-xs text-muted-foreground mb-1 block">
+                  Time
+                </label>
+                <input
+                  type="time"
+                  value={newWebhook.time}
+                  onChange={(e) =>
+                    setNewWebhook((prev) => ({ ...prev, time: e.target.value }))
+                  }
+                  className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                />
+              </div>
+              <div className="flex-1 min-w-[150px]">
+                <label className="text-xs text-muted-foreground mb-1 block">
+                  Timezone
+                </label>
+                <select
+                  value={newWebhook.timezone}
+                  onChange={(e) =>
+                    setNewWebhook((prev) => ({
+                      ...prev,
+                      timezone: e.target.value,
+                    }))
+                  }
+                  className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                >
+                  {COMMON_TIMEZONES.map((tz) => (
+                    <option key={tz} value={tz}>
+                      {tz}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">
+                Days
+              </label>
+              <div className="flex gap-1 flex-wrap">
+                {DAYS_OF_WEEK.map(({ value, label }) => (
+                  <Button
+                    key={value}
+                    type="button"
+                    variant={
+                      newWebhook.days.includes(value) ? "default" : "outline"
+                    }
+                    size="sm"
+                    className="h-8 px-2"
+                    onClick={() =>
+                      toggleDay(newWebhook.days, value, (days) =>
+                        setNewWebhook((prev) => ({ ...prev, days }))
+                      )
+                    }
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                onClick={() => createMutation.mutate(newWebhook)}
+                disabled={
+                  !newWebhook.name ||
+                  !newWebhook.url ||
+                  newWebhook.days.length === 0 ||
+                  createMutation.isPending
+                }
+              >
+                {createMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                ) : null}
+                Create
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setIsCreating(false)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Webhook list */}
+        {webhooks?.length === 0 && !isCreating ? (
+          <p className="text-sm text-muted-foreground text-center py-4">
+            No webhooks configured yet
+          </p>
+        ) : (
+          webhooks?.map((webhook) => (
+            <div key={webhook.id} className="border rounded-lg p-4">
+              {editingId === webhook.id ? (
+                <div className="space-y-4">
+                  <input
+                    type="text"
+                    value={editForm.name}
+                    onChange={(e) =>
+                      setEditForm((prev) => ({ ...prev, name: e.target.value }))
+                    }
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                  />
+                  <input
+                    type="url"
+                    value={editForm.url}
+                    onChange={(e) =>
+                      setEditForm((prev) => ({ ...prev, url: e.target.value }))
+                    }
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm font-mono"
+                  />
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">
+                      Message
+                    </label>
+                    <input
+                      type="text"
+                      value={editForm.message}
+                      onChange={(e) =>
+                        setEditForm((prev) => ({ ...prev, message: e.target.value }))
+                      }
+                      maxLength={500}
+                      className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                    />
+                  </div>
+                  <div className="flex gap-4 flex-wrap">
+                    <div className="flex-1 min-w-[120px]">
+                      <label className="text-xs text-muted-foreground mb-1 block">
+                        Time
+                      </label>
+                      <input
+                        type="time"
+                        value={editForm.time}
+                        onChange={(e) =>
+                          setEditForm((prev) => ({
+                            ...prev,
+                            time: e.target.value,
+                          }))
+                        }
+                        className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                      />
+                    </div>
+                    <div className="flex-1 min-w-[150px]">
+                      <label className="text-xs text-muted-foreground mb-1 block">
+                        Timezone
+                      </label>
+                      <select
+                        value={editForm.timezone}
+                        onChange={(e) =>
+                          setEditForm((prev) => ({
+                            ...prev,
+                            timezone: e.target.value,
+                          }))
+                        }
+                        className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                      >
+                        {COMMON_TIMEZONES.map((tz) => (
+                          <option key={tz} value={tz}>
+                            {tz}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">
+                      Days
+                    </label>
+                    <div className="flex gap-1 flex-wrap">
+                      {DAYS_OF_WEEK.map(({ value, label }) => (
+                        <Button
+                          key={value}
+                          type="button"
+                          variant={
+                            editForm.days.includes(value) ? "default" : "outline"
+                          }
+                          size="sm"
+                          className="h-8 px-2"
+                          onClick={() =>
+                            toggleDay(editForm.days, value, (days) =>
+                              setEditForm((prev) => ({ ...prev, days }))
+                            )
+                          }
+                        >
+                          {label}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() =>
+                        updateMutation.mutate({ id: webhook.id, ...editForm })
+                      }
+                      disabled={updateMutation.isPending}
+                    >
+                      {updateMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                      ) : null}
+                      Save
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setEditingId(null)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`font-medium ${!webhook.enabled ? "text-muted-foreground" : ""}`}
+                      >
+                        {webhook.name}
+                      </span>
+                      {!webhook.enabled && (
+                        <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded">
+                          Disabled
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => handleTest(webhook.id)}
+                        disabled={testingId === webhook.id}
+                        title="Test webhook"
+                      >
+                        {testingId === webhook.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Play className="h-4 w-4" />
+                        )}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => handleToggleEnabled(webhook)}
+                        title={webhook.enabled ? "Disable" : "Enable"}
+                      >
+                        <Power
+                          className={`h-4 w-4 ${webhook.enabled ? "text-green-600" : "text-muted-foreground"}`}
+                        />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => startEdit(webhook)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-destructive"
+                        onClick={() =>
+                          confirm("Delete this webhook?") &&
+                          deleteMutation.mutate({ id: webhook.id })
+                        }
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="text-sm text-muted-foreground space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">
+                        {webhook.time} ({webhook.timezone})
+                      </span>
+                      <span>•</span>
+                      <span>
+                        {webhook.days
+                          .map(
+                            (d) =>
+                              DAYS_OF_WEEK.find((day) => day.value === d)?.label
+                          )
+                          .join(", ")}
+                      </span>
+                    </div>
+                    <div className="font-mono text-xs truncate opacity-60">
+                      {webhook.url}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          ))
+        )}
       </CardContent>
     </Card>
   );

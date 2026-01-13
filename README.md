@@ -90,5 +90,38 @@ pnpm lint         # Lint all packages
 - **AI-powered summaries** via multiple backends (Gemini Nano, WebLLM, Groq, Google AI)
 - **Skip days configuration** for weekends/holidays
 - **Templates** for consistent entry structure
+- **Webhook notifications** for Slack, Discord, and other services
 - **Dark mode** with system preference detection
 - **Auto-save drafts** to prevent data loss
+
+## Webhooks
+
+Schedule automated reminders to write your TIL entries via webhooks. Supports Slack, Discord, Dooray, and any webhook-compatible service.
+
+### Configuration
+
+1. Go to Settings → Webhooks
+2. Click "New Webhook"
+3. Enter:
+   - **Name**: A friendly name (e.g., "Slack Morning")
+   - **URL**: Your webhook URL
+   - **Message**: Custom notification text (default: "⏰ Time to write your TIL!")
+   - **Time**: When to send (e.g., 09:00)
+   - **Timezone**: Your timezone
+   - **Days**: Which days to send
+
+### Limits
+
+- **Maximum 5 webhooks** to prevent abuse
+- When multi-user support is added, this will be enforced per user
+
+### Webhook Payload
+
+The webhook sends a POST request with this JSON body (compatible with Slack/Discord):
+
+```json
+{
+  "text": "<your custom message>",
+  "username": "TIL Reminder",
+  "content": "<your custom message>"
+}

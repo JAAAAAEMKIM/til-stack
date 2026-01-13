@@ -108,3 +108,56 @@ export type CreateTemplateInput = z.infer<typeof createTemplateSchema>;
 export type UpdateTemplateInput = z.infer<typeof updateTemplateSchema>;
 export type DeleteTemplateInput = z.infer<typeof deleteTemplateSchema>;
 export type SetDefaultTemplateInput = z.infer<typeof setDefaultTemplateSchema>;
+
+// Webhook validators
+export const dayOfWeekSchema = z.enum([
+  "sun",
+  "mon",
+  "tue",
+  "wed",
+  "thu",
+  "fri",
+  "sat",
+]);
+
+export const timeSchema = z
+  .string()
+  .regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Invalid time format (HH:MM)");
+
+export const timezoneSchema = z.string().min(1);
+
+export const webhookMessageSchema = z.string().min(1).max(500);
+
+export const createWebhookSchema = z.object({
+  name: z.string().min(1).max(100),
+  url: z.string().url(),
+  message: webhookMessageSchema.default("⏰ Time to write your TIL!"),
+  time: timeSchema,
+  days: z.array(dayOfWeekSchema).min(1),
+  timezone: timezoneSchema,
+  enabled: z.boolean().default(true),
+});
+
+export const updateWebhookSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1).max(100).optional(),
+  url: z.string().url().optional(),
+  message: webhookMessageSchema.optional(),
+  time: timeSchema.optional(),
+  days: z.array(dayOfWeekSchema).min(1).optional(),
+  timezone: timezoneSchema.optional(),
+  enabled: z.boolean().optional(),
+});
+
+export const deleteWebhookSchema = z.object({
+  id: z.string().min(1),
+});
+
+export const testWebhookSchema = z.object({
+  id: z.string().min(1),
+});
+
+export type CreateWebhookInput = z.infer<typeof createWebhookSchema>;
+export type UpdateWebhookInput = z.infer<typeof updateWebhookSchema>;
+export type DeleteWebhookInput = z.infer<typeof deleteWebhookSchema>;
+export type TestWebhookInput = z.infer<typeof testWebhookSchema>;
