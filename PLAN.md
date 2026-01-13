@@ -175,7 +175,44 @@ typescript
 - **Entry UX**: Click any entry in list to jump to that date's editor
 - **Editor**: Plain textarea (markdown rendered only in entry list/view)
 
-## Future Ideas
+## Phase 7: Configuration & Settings (Completed)
+- [x] Add config page (`/config`) with settings sections
+- [x] Database schema for skip days and templates
+- [x] Skip days management (recurring weekdays + specific dates)
+- [x] Templates CRUD with default template support
+- [x] Theme selector (system/light/dark)
+- [x] Navigation integration with skip days
+
+## Phase 8: AI Features (Completed)
+- [x] AI configuration with multiple backend support
+- [x] Gemini Nano (Chrome built-in) integration
+- [x] WebLLM (local LLM via WebGPU) integration
+- [x] Groq Cloud API integration
+- [x] Google AI (Gemini) API integration
+- [x] Weekly summary generation with streaming
+- [x] Custom prompt configuration
+- [x] Auto-save drafts to localStorage
+
+## Future Improvements
+
+### High Priority
+- [ ] Add test infrastructure (vitest) and basic API tests
+- [ ] Add keyboard shortcuts (Cmd+S to save, Esc to cancel)
+- [ ] Implement search functionality for entries
+- [ ] Add error boundary to prevent full-app crashes
+- [ ] Extract shared date utilities to reduce duplication
+
+### Medium Priority
+- [ ] Split large route files into smaller components
+- [ ] Create proper component library (input, dialog, etc.)
+- [ ] Improve calendar to show skipped days (grayed out)
+- [ ] Use human-friendly date format (Mon, Jan 6) in navigator
+- [ ] Add data export/import for backup
+
+### Low Priority
+- [ ] Add loading states for all mutations
+- [ ] Consistent error handling across AI backends
+- [ ] Replace native confirm() with custom dialog
 
 ### Template Variables
 Support dynamic placeholders in templates:
@@ -185,3 +222,12 @@ Support dynamic placeholders in templates:
 - `{{month}}` - Month name
 
 Templates would be processed at entry creation time, replacing variables with actual values.
+
+## Decisions Made
+
+### Auto-save vs beforeunload warning
+We chose auto-save drafts to localStorage over beforeunload warnings because:
+- Drafts are saved every 500ms with debounce
+- Content is restored when returning to a date
+- Better UX than disruptive browser dialogs
+- Works across page refreshes and tab switches

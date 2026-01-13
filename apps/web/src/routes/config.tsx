@@ -23,7 +23,6 @@ import {
   Sparkles,
   Download,
   Check,
-  AlertCircle,
   RotateCcw,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";

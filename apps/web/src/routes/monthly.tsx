@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, Loader2, Pencil } from "lucide-react";
 import { rootRoute } from "./__root";
 import { trpc } from "@/lib/trpc";
+import { formatDateShort, getLocalDateString } from "@/lib/date-utils";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Entry } from "@til-stack/shared";
@@ -27,10 +28,8 @@ function getMonthDates(year: number, month: number) {
   const lastDay = new Date(year, month + 1, 0);
   const daysInMonth = lastDay.getDate();
 
-  // Get the day of week for the first day (0 = Sunday, 1 = Monday, etc.)
-  // We want Monday as start of week, so adjust
-  let startDayOfWeek = firstDay.getDay();
-  startDayOfWeek = startDayOfWeek === 0 ? 6 : startDayOfWeek - 1; // Convert to Monday-based
+  // Get the day of week for the first day (0 = Sunday)
+  const startDayOfWeek = firstDay.getDay();
 
   const dates: (string | null)[] = [];
 
@@ -42,7 +41,7 @@ function getMonthDates(year: number, month: number) {
   // Add all days of the month
   for (let day = 1; day <= daysInMonth; day++) {
     const date = new Date(year, month, day);
-    dates.push(date.toISOString().split("T")[0]);
+    dates.push(getLocalDateString(date));
   }
 
   return dates;
@@ -52,32 +51,27 @@ function getWeeksInMonth(year: number, month: number) {
   const firstDay = new Date(year, month, 1);
   const lastDay = new Date(year, month + 1, 0);
 
-  // Adjust first day to Monday of that week
+  // Adjust first day to Sunday of that week
   const startDayOfWeek = firstDay.getDay();
-  const mondayOffset = startDayOfWeek === 0 ? -6 : 1 - startDayOfWeek;
-  const firstMonday = new Date(year, month, 1 + mondayOffset);
+  const sundayOffset = -startDayOfWeek;
+  const firstSunday = new Date(year, month, 1 + sundayOffset);
 
   const weeks: { weekStart: string; weekEnd: string }[] = [];
-  let currentMonday = new Date(firstMonday);
+  let currentSunday = new Date(firstSunday);
 
-  while (currentMonday <= lastDay) {
-    const weekEnd = new Date(currentMonday);
+  while (currentSunday <= lastDay) {
+    const weekEnd = new Date(currentSunday);
     weekEnd.setDate(weekEnd.getDate() + 6);
 
     weeks.push({
-      weekStart: currentMonday.toISOString().split("T")[0],
-      weekEnd: weekEnd.toISOString().split("T")[0],
+      weekStart: getLocalDateString(currentSunday),
+      weekEnd: getLocalDateString(weekEnd),
     });
 
-    currentMonday.setDate(currentMonday.getDate() + 7);
+    currentSunday.setDate(currentSunday.getDate() + 7);
   }
 
   return weeks;
-}
-
-function formatDateShort(dateStr: string): string {
-  const date = new Date(dateStr + "T00:00:00");
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 function MonthlyPage() {
@@ -161,9 +155,9 @@ function MonthlyPage() {
 
   const isCurrentMonth =
     currentYear === today.getFullYear() && currentMonth === today.getMonth();
-  const todayStr = today.toISOString().split("T")[0];
+  const todayStr = getLocalDateString(today);
 
-  const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
   return (
     <div className="space-y-6">

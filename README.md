@@ -10,7 +10,7 @@ A full-stack "Today I Learned" journal application built with a modern TypeScrip
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 20+
 - pnpm 8+
 
 ## Getting Started
@@ -80,4 +80,15 @@ til-stack/
 pnpm dev          # Run both API and web in development mode
 pnpm build        # Build all packages
 pnpm db:migrate   # Run database migrations
+pnpm lint         # Lint all packages
 ```
+
+## Features
+
+- **Daily journaling** with markdown support and syntax highlighting
+- **Monthly calendar view** with weekly summaries
+- **AI-powered summaries** via multiple backends (Gemini Nano, WebLLM, Groq, Google AI)
+- **Skip days configuration** for weekends/holidays
+- **Templates** for consistent entry structure
+- **Dark mode** with system preference detection
+- **Auto-save drafts** to prevent data loss

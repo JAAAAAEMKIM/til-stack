@@ -11,6 +11,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { ChevronLeft, ChevronRight, Trash2, Save, Loader2, Pencil, Copy, Check, X } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { loadDraft, saveDraft, removeDraft } from "@/lib/draft";
+import {
+  getLocalDateString,
+  getDateLabel,
+  getNextValidDay,
+  type SkipDaysConfig,
+} from "@/lib/date-utils";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -28,79 +34,6 @@ export const indexRoute = createRoute({
   validateSearch: searchSchema,
   component: HomePage,
 });
-
-function formatDate(dateStr: string): string {
-  const date = new Date(dateStr + "T00:00:00");
-  return date.toLocaleDateString("en-US", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-}
-
-function getLocalDateString(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function getDateLabel(dateStr: string): string {
-  const today = getLocalDateString(new Date());
-  const yesterday = getLocalDateString(new Date(Date.now() - 86400000));
-  const tomorrow = getLocalDateString(new Date(Date.now() + 86400000));
-
-  if (dateStr === today) return "Today";
-  if (dateStr === yesterday) return "Yesterday";
-  if (dateStr === tomorrow) return "Tomorrow";
-  return formatDate(dateStr);
-}
-
-function addDays(dateStr: string, days: number): string {
-  const date = new Date(dateStr + "T00:00:00");
-  date.setDate(date.getDate() + days);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-interface SkipDaysConfig {
-  weekdays: number[];
-  specificDates: string[];
-}
-
-function shouldSkipDate(
-  dateStr: string,
-  config: SkipDaysConfig | undefined
-): boolean {
-  if (!config) return false;
-
-  if (config.specificDates.includes(dateStr)) return true;
-
-  const date = new Date(dateStr + "T00:00:00");
-  const weekday = date.getDay();
-  if (config.weekdays.includes(weekday)) return true;
-
-  return false;
-}
-
-function getNextValidDay(
-  dateStr: string,
-  direction: number,
-  config: SkipDaysConfig | undefined
-): string {
-  let result = dateStr;
-  let maxIterations = 365;
-
-  do {
-    result = addDays(result, direction);
-    maxIterations--;
-  } while (shouldSkipDate(result, config) && maxIterations > 0);
-
-  return result;
-}
 
 // =============================================================================
 // NewEntryCard - For creating new entries (always in edit mode)
@@ -412,7 +345,7 @@ function HomePage() {
 
   // Update selected date when search param changes
   useEffect(() => {
-    if (initialDate && initialDate !== selectedDate) {
+    if (initialDate) {
       setSelectedDate(initialDate);
     }
   }, [initialDate]);
