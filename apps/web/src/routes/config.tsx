@@ -118,6 +118,8 @@ function AISection() {
     setEnabled,
     setBackend,
     setWebllmModel,
+    setGroqApiKey,
+    setGoogleAiApiKey,
     setWeeklyPrompt,
     resetPrompt,
     DEFAULT_WEEKLY_PROMPT,
@@ -259,35 +261,89 @@ function AISection() {
               </div>
             )}
 
-            {/* Status */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-sm">Status:</span>
-                <span className={`text-sm font-medium ${statusInfo.color}`}>
-                  {statusInfo.label}
-                </span>
-                {isLoading && progress > 0 && (
-                  <span className="text-xs text-muted-foreground">
-                    ({Math.round(progress * 100)}%)
-                  </span>
-                )}
+            {/* Groq API Key */}
+            {config.backend === "groq" && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Groq API Key</label>
+                <input
+                  type="password"
+                  value={config.groqApiKey}
+                  onChange={(e) => setGroqApiKey(e.target.value)}
+                  placeholder="gsk_..."
+                  className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm font-mono"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Get your free API key at{" "}
+                  <a
+                    href="https://console.groq.com/keys"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary underline"
+                  >
+                    console.groq.com
+                  </a>
+                </p>
               </div>
-              {status === "idle" && (
-                <Button size="sm" variant="outline" onClick={initDownload}>
-                  <Download className="h-4 w-4 mr-1" />
-                  Load Model
-                </Button>
-              )}
-              {isLoading && (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              )}
-            </div>
+            )}
 
-            {/* Loading progress text */}
-            {isLoading && progressText && (
-              <p className="text-xs text-muted-foreground truncate">
-                {progressText}
-              </p>
+            {/* Google AI API Key */}
+            {config.backend === "google-ai" && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Google AI API Key</label>
+                <input
+                  type="password"
+                  value={config.googleAiApiKey}
+                  onChange={(e) => setGoogleAiApiKey(e.target.value)}
+                  placeholder="AIza..."
+                  className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm font-mono"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Get your free API key at{" "}
+                  <a
+                    href="https://aistudio.google.com/apikey"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary underline"
+                  >
+                    aistudio.google.com
+                  </a>
+                </p>
+              </div>
+            )}
+
+            {/* Status - only for local models */}
+            {(config.backend === "gemini-nano" || config.backend === "webllm") && (
+              <>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">Status:</span>
+                    <span className={`text-sm font-medium ${statusInfo.color}`}>
+                      {statusInfo.label}
+                    </span>
+                    {isLoading && progress > 0 && (
+                      <span className="text-xs text-muted-foreground">
+                        ({Math.round(progress * 100)}%)
+                      </span>
+                    )}
+                  </div>
+                  {status === "idle" && (
+                    <Button size="sm" variant="outline" onClick={initDownload}>
+                      <Download className="h-4 w-4 mr-1" />
+                      Load Model
+                    </Button>
+                  )}
+                  {isLoading && (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  )}
+                </div>
+
+                {/* Loading progress text */}
+                {isLoading && progressText && (
+                  <p className="text-xs text-muted-foreground truncate">
+                    {progressText}
+                  </p>
+                )}
+              </>
             )}
 
             {/* Weekly prompt */}

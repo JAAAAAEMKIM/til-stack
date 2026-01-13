@@ -1,5 +1,5 @@
 // Unified Summarizer Hook
-// Switches between Gemini Nano and WebLLM based on config
+// Switches between Gemini Nano, WebLLM, Groq, and Google AI based on config
 
 import { useCallback, useMemo } from "react";
 import { useAIConfig, type AIBackend } from "./ai-config";
@@ -8,6 +8,8 @@ import {
   type GeminiSummarizerStatus,
 } from "./gemini-summarizer";
 import { useWebLLMSummarizer, type WebLLMStatus } from "./webllm-summarizer";
+import { useGroqSummarizer, type GroqStatus } from "./groq-summarizer";
+import { useGoogleAISummarizer, type GoogleAIStatus } from "./google-ai-summarizer";
 
 export type SummarizerStatus =
   | "unavailable"
@@ -35,6 +37,13 @@ function mapWebLLMStatus(status: WebLLMStatus): SummarizerStatus {
   return status;
 }
 
+// Map cloud status to unified status
+function mapCloudStatus(status: GroqStatus | GoogleAIStatus, hasApiKey: boolean): SummarizerStatus {
+  if (!hasApiKey) return "idle";
+  if (status === "error") return "idle";
+  return status;
+}
+
 export function useSummarizer() {
   const { config } = useAIConfig();
 
@@ -43,6 +52,10 @@ export function useSummarizer() {
   });
 
   const webllm = useWebLLMSummarizer(config.webllmModel, config.weeklyPrompt);
+
+  const groq = useGroqSummarizer(config.groqApiKey, config.weeklyPrompt);
+
+  const googleAi = useGoogleAISummarizer(config.googleAiApiKey, config.weeklyPrompt);
 
   const backend = config.backend;
 
@@ -54,8 +67,14 @@ export function useSummarizer() {
     if (backend === "webllm") {
       return mapWebLLMStatus(webllm.status);
     }
+    if (backend === "groq") {
+      return mapCloudStatus(groq.status, !!config.groqApiKey);
+    }
+    if (backend === "google-ai") {
+      return mapCloudStatus(googleAi.status, !!config.googleAiApiKey);
+    }
     return "unavailable";
-  }, [backend, gemini.status, webllm.status]);
+  }, [backend, gemini.status, webllm.status, groq.status, googleAi.status, config.groqApiKey, config.googleAiApiKey]);
 
   // Unified progress
   const progress = useMemo(() => {
@@ -65,6 +84,7 @@ export function useSummarizer() {
     if (backend === "webllm") {
       return webllm.progress;
     }
+    // Cloud backends don't have progress
     return 0;
   }, [backend, gemini.downloadProgress, webllm.progress]);
 
@@ -84,20 +104,42 @@ export function useSummarizer() {
     if (backend === "webllm") {
       return webllm.loadModel();
     }
+    // Cloud backends don't need initialization
   }, [backend, gemini.initDownload, webllm.loadModel]);
 
   // Streaming summarize
   const summarizeStream = useCallback(
     async function* (text: string): AsyncGenerator<string> {
+      const userPrompt = config.weeklyPrompt;
+      const combinedPrompt = `# Task Description\n\n${userPrompt}\n\n---\n\n# Scrum Contents\n\n${text}`;
+
+      console.group("🤖 AI Summary Request");
+      console.log("Backend:", backend);
+      console.log("User Prompt:", userPrompt);
+      console.log("Input Text:", text);
+      console.log("--- Combined Prompt ---");
+      console.log(combinedPrompt);
+      console.groupEnd();
+
       if (backend === "gemini-nano") {
         yield* gemini.summarizeStream(text);
       } else if (backend === "webllm") {
         yield* webllm.summarizeStream(text);
+      } else if (backend === "groq") {
+        if (!config.groqApiKey) {
+          throw new Error("Groq API key is required. Please add it in Settings.");
+        }
+        yield* groq.summarizeStream(text);
+      } else if (backend === "google-ai") {
+        if (!config.googleAiApiKey) {
+          throw new Error("Google AI API key is required. Please add it in Settings.");
+        }
+        yield* googleAi.summarizeStream(text);
       } else {
         throw new Error(`Unsupported backend: ${backend}`);
       }
     },
-    [backend, gemini.summarizeStream, webllm.summarizeStream]
+    [backend, config.weeklyPrompt, config.groqApiKey, config.googleAiApiKey, gemini.summarizeStream, webllm.summarizeStream, groq.summarizeStream, googleAi.summarizeStream]
   );
 
   return {

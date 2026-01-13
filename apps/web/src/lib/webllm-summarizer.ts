@@ -245,20 +245,20 @@ export function useWebLLMSummarizer(model: string, sharedContext?: string) {
 
       setStatus("generating");
 
-      const systemPrompt = sharedContext || "You are a helpful assistant that summarizes text concisely.";
+      // Combine prompt and input into a single user message
+      const userPrompt = sharedContext || "Summarize the following entries concisely.";
+      const combinedContent = `# Task Description\n\n${userPrompt}\n\n---\n\n# Scrum Contents\n\n${text}`;
+
       const messages: ChatCompletionMessageParam[] = [
-        { role: "system", content: systemPrompt },
-        {
-          role: "user",
-          content: `Please summarize the following entries:\n\n${text}`,
-        },
+        { role: "user", content: combinedContent },
       ];
 
-      // Debug: Log the actual prompt and input
+      // Debug: Log the actual prompt
       console.group("🤖 AI Summary Request");
-      console.log("System Prompt:", systemPrompt);
-      console.log("User Input:", messages[1].content);
-      console.log("Full Messages:", messages);
+      console.log("User Prompt:", userPrompt);
+      console.log("Input Text:", text);
+      console.log("--- Combined Message ---");
+      console.log(combinedContent);
       console.groupEnd();
 
       const chunks: string[] = [];

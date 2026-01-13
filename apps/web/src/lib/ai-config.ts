@@ -6,13 +6,14 @@ const DEFAULT_WEEKLY_PROMPT = `These are daily TIL (Today I Learned) entries fro
 Summarize the key technical learnings and insights from this week in 3-5 bullet points.
 Focus on: new concepts learned, problems solved, and skills practiced.`;
 
-export type AIBackend = "gemini-nano" | "webllm" | "transformers";
+export type AIBackend = "gemini-nano" | "webllm" | "groq" | "google-ai";
 
 export const AI_BACKENDS: {
   id: AIBackend;
   name: string;
   description: string;
   disabled?: boolean;
+  requiresApiKey?: boolean;
 }[] = [
   {
     id: "gemini-nano",
@@ -25,10 +26,16 @@ export const AI_BACKENDS: {
     description: "Local LLM via WebGPU",
   },
   {
-    id: "transformers",
-    name: "Transformers.js",
-    description: "HuggingFace models (WIP)",
-    disabled: true,
+    id: "groq",
+    name: "Groq Cloud",
+    description: "Llama 3.1 70B - Fast & Free tier available",
+    requiresApiKey: true,
+  },
+  {
+    id: "google-ai",
+    name: "Google AI",
+    description: "Gemini 1.5 Flash - Free tier available",
+    requiresApiKey: true,
   },
 ];
 
@@ -64,13 +71,17 @@ export interface AIConfig {
   backend: AIBackend;
   weeklyPrompt: string;
   webllmModel: string;
+  groqApiKey: string;
+  googleAiApiKey: string;
 }
 
 const DEFAULT_CONFIG: AIConfig = {
   enabled: true,
   backend: "gemini-nano",
   weeklyPrompt: DEFAULT_WEEKLY_PROMPT,
-  webllmModel: "Qwen2.5-1.5B-Instruct-q4f16_1-MLC", // Best Korean support
+  webllmModel: "Qwen2.5-1.5B-Instruct-q4f16_1-MLC",
+  groqApiKey: "",
+  googleAiApiKey: "",
 };
 
 function loadConfig(): AIConfig {
@@ -127,6 +138,14 @@ export function useAIConfig() {
     setConfig({ webllmModel });
   }, [setConfig]);
 
+  const setGroqApiKey = useCallback((groqApiKey: string) => {
+    setConfig({ groqApiKey });
+  }, [setConfig]);
+
+  const setGoogleAiApiKey = useCallback((googleAiApiKey: string) => {
+    setConfig({ googleAiApiKey });
+  }, [setConfig]);
+
   const resetPrompt = useCallback(() => {
     setConfig({ weeklyPrompt: DEFAULT_WEEKLY_PROMPT });
   }, [setConfig]);
@@ -137,6 +156,8 @@ export function useAIConfig() {
     setEnabled,
     setBackend,
     setWebllmModel,
+    setGroqApiKey,
+    setGoogleAiApiKey,
     setWeeklyPrompt,
     resetPrompt,
     DEFAULT_WEEKLY_PROMPT,
