@@ -9,7 +9,9 @@ import {
   Check,
   RefreshCw,
   AlertCircle,
+  ExternalLink,
 } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -122,13 +124,23 @@ export function AISummary({ entries, context, autoStart = false }: AISummaryProp
     generateSummary();
   };
 
+  console.log("[AISummary] Render:", {
+    configEnabled: config.enabled,
+    summarizerStatus,
+    entriesCount: entries.length,
+    state,
+    autoStart,
+  });
+
   // Don't render if AI is disabled
   if (!config.enabled) {
+    console.log("[AISummary] Not rendering - AI disabled");
     return null;
   }
 
   // Handle different summarizer states
   if (summarizerStatus === "unavailable") {
+    console.log("[AISummary] Showing unavailable message");
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
         <AlertCircle className="h-4 w-4" />
@@ -138,6 +150,7 @@ export function AISummary({ entries, context, autoStart = false }: AISummaryProp
   }
 
   if (summarizerStatus === "idle") {
+    console.log("[AISummary] Showing 'Preparing AI model...' - status is idle");
     return (
       <div className="flex items-center gap-3 py-2">
         <Loader2 className="h-4 w-4 animate-spin text-primary" />
@@ -147,12 +160,44 @@ export function AISummary({ entries, context, autoStart = false }: AISummaryProp
   }
 
   if (summarizerStatus === "loading") {
+    console.log("[AISummary] Showing loading with progress:", progress);
     return (
       <div className="flex items-center gap-3 py-2">
         <Loader2 className="h-4 w-4 animate-spin text-primary" />
         <span className="text-sm">
           Loading AI model... {Math.round(progress * 100)}%
         </span>
+      </div>
+    );
+  }
+
+  // Handle summarizer-level errors (e.g., API quota exceeded)
+  if (summarizerStatus === "error" && state !== "generating" && state !== "complete") {
+    console.log("[AISummary] Showing summarizer error state");
+    return (
+      <div className="border-b pb-3 mb-3">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 text-destructive" />
+            <span className="text-sm font-medium">AI Summary</span>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={handleRetry}
+            title="Retry"
+          >
+            <RefreshCw className="h-3 w-3" />
+          </Button>
+        </div>
+        <p className="text-sm text-destructive">
+          {error || "AI service error."}{" "}
+          Try switching to another model in Settings.{" "}
+          <Link to="/config" title="Go to Settings" className="inline-flex align-middle">
+            <ExternalLink className="h-3 w-3 hover:opacity-70" />
+          </Link>
+        </p>
       </div>
     );
   }

@@ -1,15 +1,24 @@
 // Groq Cloud Summarizer
 // Uses Groq's OpenAI-compatible API with Llama 3.1 70B
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 
 export type GroqStatus = "idle" | "ready" | "generating" | "error";
 
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
-const MODEL = "llama-3.1-70b-versatile";
+const MODEL = "llama-3.3-70b-versatile";
 
 export function useGroqSummarizer(apiKey: string, sharedContext?: string) {
   const [status, setStatus] = useState<GroqStatus>(apiKey ? "ready" : "idle");
+
+  // Update status when apiKey changes (e.g., loaded from localStorage)
+  useEffect(() => {
+    if (apiKey && status === "idle") {
+      setStatus("ready");
+    } else if (!apiKey && status === "ready") {
+      setStatus("idle");
+    }
+  }, [apiKey, status]);
 
   const summarizeStream = useCallback(
     async function* (text: string): AsyncGenerator<string> {
@@ -37,8 +46,17 @@ export function useGroqSummarizer(apiKey: string, sharedContext?: string) {
         });
 
         if (!response.ok) {
-          const error = await response.text();
-          throw new Error(`Groq API error: ${response.status} - ${error}`);
+          const errorText = await response.text();
+          console.error("[Groq] API error:", response.status, errorText);
+
+          // Parse error and provide user-friendly message
+          if (response.status === 429) {
+            throw new Error("API quota exceeded.");
+          } else if (response.status === 401) {
+            throw new Error("Invalid API key.");
+          } else {
+            throw new Error(`API error (${response.status}).`);
+          }
         }
 
         const reader = response.body?.getReader();

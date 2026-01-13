@@ -16,7 +16,8 @@ export type SummarizerStatus =
   | "idle"
   | "loading"
   | "ready"
-  | "generating";
+  | "generating"
+  | "error";
 
 // Map Gemini status to unified status
 function mapGeminiStatus(status: GeminiSummarizerStatus): SummarizerStatus {
@@ -40,12 +41,20 @@ function mapWebLLMStatus(status: WebLLMStatus): SummarizerStatus {
 // Map cloud status to unified status
 function mapCloudStatus(status: GroqStatus | GoogleAIStatus, hasApiKey: boolean): SummarizerStatus {
   if (!hasApiKey) return "idle";
-  if (status === "error") return "idle";
+  if (status === "error") return "error";
   return status;
 }
 
 export function useSummarizer() {
   const { config } = useAIConfig();
+
+  console.log("[Summarizer] Config loaded:", {
+    backend: config.backend,
+    enabled: config.enabled,
+    hasGroqKey: !!config.groqApiKey,
+    hasGoogleAiKey: !!config.googleAiApiKey,
+    googleAiKeyPreview: config.googleAiApiKey ? `${config.googleAiApiKey.slice(0, 8)}...` : "(empty)",
+  });
 
   const gemini = useGeminiSummarizer({
     sharedContext: config.weeklyPrompt,
@@ -61,19 +70,25 @@ export function useSummarizer() {
 
   // Unified status
   const status: SummarizerStatus = useMemo(() => {
+    let result: SummarizerStatus;
     if (backend === "gemini-nano") {
-      return mapGeminiStatus(gemini.status);
+      result = mapGeminiStatus(gemini.status);
+    } else if (backend === "webllm") {
+      result = mapWebLLMStatus(webllm.status);
+    } else if (backend === "groq") {
+      result = mapCloudStatus(groq.status, !!config.groqApiKey);
+    } else if (backend === "google-ai") {
+      result = mapCloudStatus(googleAi.status, !!config.googleAiApiKey);
+    } else {
+      result = "unavailable";
     }
-    if (backend === "webllm") {
-      return mapWebLLMStatus(webllm.status);
-    }
-    if (backend === "groq") {
-      return mapCloudStatus(groq.status, !!config.groqApiKey);
-    }
-    if (backend === "google-ai") {
-      return mapCloudStatus(googleAi.status, !!config.googleAiApiKey);
-    }
-    return "unavailable";
+    console.log("[Summarizer] Status computed:", {
+      backend,
+      googleAiRawStatus: googleAi.status,
+      hasGoogleAiKey: !!config.googleAiApiKey,
+      mappedStatus: result,
+    });
+    return result;
   }, [backend, gemini.status, webllm.status, groq.status, googleAi.status, config.groqApiKey, config.googleAiApiKey]);
 
   // Unified progress

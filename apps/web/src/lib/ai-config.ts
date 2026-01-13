@@ -28,13 +28,13 @@ export const AI_BACKENDS: {
   {
     id: "groq",
     name: "Groq Cloud",
-    description: "Llama 3.1 70B - Fast & Free tier available",
+    description: "Llama 3.3 70B - Fast & Free tier available",
     requiresApiKey: true,
   },
   {
     id: "google-ai",
     name: "Google AI",
-    description: "Gemini 1.5 Flash - Free tier available",
+    description: "Gemini 2.0 Flash - Fast & Free tier available",
     requiresApiKey: true,
   },
 ];
@@ -91,11 +91,19 @@ function loadConfig(): AIConfig {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       const parsed = JSON.parse(stored);
-      return { ...DEFAULT_CONFIG, ...parsed };
+      const config = { ...DEFAULT_CONFIG, ...parsed };
+      console.log("[AIConfig] Loaded from localStorage:", {
+        backend: config.backend,
+        enabled: config.enabled,
+        hasGoogleAiKey: !!config.googleAiApiKey,
+        googleAiKeyPreview: config.googleAiApiKey ? `${config.googleAiApiKey.slice(0, 8)}...` : "(empty)",
+      });
+      return config;
     }
   } catch {
     // Ignore parse errors
   }
+  console.log("[AIConfig] Using default config (no stored config found)");
   return DEFAULT_CONFIG;
 }
 
@@ -108,9 +116,20 @@ export function useAIConfig() {
   const [config, setConfigState] = useState<AIConfig>(DEFAULT_CONFIG);
   const [isSupported, setIsSupported] = useState(false);
 
+  console.log("[AIConfig] useAIConfig render, current config:", {
+    backend: config.backend,
+    hasGoogleAiKey: !!config.googleAiApiKey,
+  });
+
   // Load config on mount
   useEffect(() => {
-    setConfigState(loadConfig());
+    console.log("[AIConfig] useEffect - loading config from localStorage");
+    const loaded = loadConfig();
+    console.log("[AIConfig] useEffect - setting config state:", {
+      backend: loaded.backend,
+      hasGoogleAiKey: !!loaded.googleAiApiKey,
+    });
+    setConfigState(loaded);
     setIsSupported("Summarizer" in window);
   }, []);
 
