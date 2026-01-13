@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ChevronLeft, ChevronRight, Trash2, Save, Loader2, Pencil, Copy, Check, X } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { loadDraft, saveDraft, removeDraft } from "@/lib/draft";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -110,12 +111,22 @@ interface NewEntryCardProps {
 }
 
 function NewEntryCard({ date, defaultTemplate }: NewEntryCardProps) {
-  const [content, setContent] = useState(defaultTemplate || "");
-  const [hasChanges, setHasChanges] = useState(false);
+  const baseContent = defaultTemplate || "";
+  const [content, setContent] = useState(() => {
+    const draft = loadDraft(date);
+    return draft !== null ? draft : baseContent;
+  });
+  const [hasChanges, setHasChanges] = useState(() => {
+    const draft = loadDraft(date);
+    return draft !== null && draft !== baseContent;
+  });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const utils = trpc.useUtils();
 
   const upsertMutation = trpc.entries.upsert.useMutation({
+    onSuccess: () => {
+      removeDraft(date);
+    },
     onSettled: () => {
       utils.entries.getByDate.invalidate();
       utils.entries.list.invalidate();
@@ -131,9 +142,21 @@ function NewEntryCard({ date, defaultTemplate }: NewEntryCardProps) {
     }
   }, [content]);
 
+  // Auto-save draft with debounce
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (content !== baseContent) {
+        saveDraft(date, content);
+      } else {
+        removeDraft(date);
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [content, date, baseContent]);
+
   const handleContentChange = (value: string) => {
     setContent(value);
-    setHasChanges(value !== (defaultTemplate || ""));
+    setHasChanges(value !== baseContent);
   };
 
   const handleSave = () => {
@@ -200,7 +223,20 @@ function EntryView({ entry }: EntryViewProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const utils = trpc.useUtils();
 
+  // Restore draft when entering edit mode
+  const handleStartEditing = () => {
+    const draft = loadDraft(entry.date);
+    if (draft !== null && draft !== entry.content) {
+      setContent(draft);
+      setHasChanges(true);
+    }
+    setIsEditing(true);
+  };
+
   const upsertMutation = trpc.entries.upsert.useMutation({
+    onSuccess: () => {
+      removeDraft(entry.date);
+    },
     onSettled: () => {
       utils.entries.getByDate.invalidate();
       utils.entries.list.invalidate();
@@ -208,6 +244,9 @@ function EntryView({ entry }: EntryViewProps) {
   });
 
   const deleteMutation = trpc.entries.delete.useMutation({
+    onSuccess: () => {
+      removeDraft(entry.date);
+    },
     onSettled: () => {
       utils.entries.getByDate.invalidate();
       utils.entries.list.invalidate();
@@ -222,6 +261,19 @@ function EntryView({ entry }: EntryViewProps) {
       textarea.style.height = `${textarea.scrollHeight}px`;
     }
   }, [content]);
+
+  // Auto-save draft with debounce (only when editing)
+  useEffect(() => {
+    if (!isEditing) return;
+    const timer = setTimeout(() => {
+      if (content !== entry.content) {
+        saveDraft(entry.date, content);
+      } else {
+        removeDraft(entry.date);
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [content, entry.date, entry.content, isEditing]);
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(entry.content);
@@ -245,6 +297,7 @@ function EntryView({ entry }: EntryViewProps) {
     setContent(entry.content);
     setHasChanges(false);
     setIsEditing(false);
+    removeDraft(entry.date);
   };
 
   const handleDelete = () => {
@@ -284,7 +337,7 @@ function EntryView({ entry }: EntryViewProps) {
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 transition-opacity duration-200"
-                onClick={() => setIsEditing(true)}
+                onClick={handleStartEditing}
               >
                 <Pencil className="h-4 w-4" />
               </Button>
