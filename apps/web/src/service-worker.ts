@@ -1,8 +1,16 @@
 /// <reference lib="webworker" />
 declare const self: ServiceWorkerGlobalScope;
 
+console.log("🚀 Service Worker script loaded!");
+
 import initSqlJs, { type Database } from "sql.js";
 import { loadFromIndexedDB, saveToIndexedDB } from "./worker/persistence";
+
+const SW_VERSION = "2026-01-14-v4-wasm-fix";
+const CACHE_NAME = "til-stack-v1";
+const STATIC_ASSETS = [
+  "/sql.js/sql-wasm.wasm",
+];
 
 let sqliteDb: Database | null = null;
 let isLoggedIn = false;
@@ -10,13 +18,38 @@ let syncEnabled = false; // Whether to trigger background sync
 
 // Initialize sql.js and load database
 async function initDatabase(): Promise<Database> {
-  if (sqliteDb) return sqliteDb;
+  if (sqliteDb) {
+    console.log("[SW] Database already initialized");
+    return sqliteDb;
+  }
+
+  console.log("[SW] Initializing database...");
+
+  // Try to load wasm from cache first (for offline support)
+  let wasmBinary: ArrayBuffer | undefined;
+  try {
+    const cache = await caches.open(CACHE_NAME);
+    const cachedResponse = await cache.match("/sql.js/sql-wasm.wasm");
+    if (cachedResponse) {
+      console.log("[SW] Loading wasm from cache");
+      wasmBinary = await cachedResponse.arrayBuffer();
+    }
+  } catch (e) {
+    console.log("[SW] Cache miss for wasm, will fetch from network");
+  }
 
   const SQL = await initSqlJs({
-    locateFile: (file) => `/sql.js/${file}`,
+    locateFile: (file) => {
+      console.log("[SW] sql.js locateFile:", file);
+      return `/sql.js/${file}`;
+    },
+    // Pass cached wasm binary if available
+    wasmBinary,
   });
+  console.log("[SW] sql.js loaded");
 
   const savedData = await loadFromIndexedDB();
+  console.log("[SW] IndexedDB data:", savedData ? `${savedData.length} bytes` : "none");
   sqliteDb = savedData ? new SQL.Database(savedData) : new SQL.Database();
 
   // Create tables if they don't exist
@@ -476,12 +509,21 @@ async function handleTRPCRequest(request: Request): Promise<Response> {
 
 // Service Worker event handlers
 self.addEventListener("install", (event) => {
-  console.log("[SW] Installing...");
-  event.waitUntil(self.skipWaiting());
+  console.log(`[SW] Installing version ${SW_VERSION}...`);
+  event.waitUntil(
+    Promise.all([
+      self.skipWaiting(),
+      // Cache static assets needed for offline operation
+      caches.open(CACHE_NAME).then((cache) => {
+        console.log("[SW] Caching static assets");
+        return cache.addAll(STATIC_ASSETS);
+      }),
+    ])
+  );
 });
 
 self.addEventListener("activate", (event) => {
-  console.log("[SW] Activating...");
+  console.log(`[SW] Activating version ${SW_VERSION}...`);
   event.waitUntil(self.clients.claim());
 });
 
@@ -571,9 +613,36 @@ self.addEventListener("message", async (event) => {
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
 
+  // Debug: Log ALL fetch events
+  console.log(`[SW ${SW_VERSION}] Fetch event:`, url.pathname);
+
+  // Serve cached static assets (needed for offline sql.js wasm)
+  if (STATIC_ASSETS.includes(url.pathname)) {
+    console.log("[SW] Serving cached asset:", url.pathname);
+    event.respondWith(
+      caches.match(event.request).then((cached) => {
+        if (cached) {
+          console.log("[SW] Cache hit:", url.pathname);
+          return cached;
+        }
+        console.log("[SW] Cache miss, fetching:", url.pathname);
+        // Fallback to network and cache for future
+        return fetch(event.request).then((response) => {
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return response;
+        });
+      })
+    );
+    return;
+  }
+
   // Local-first: Always intercept /trpc requests (except pure auth/webhook batches)
   if (url.pathname.startsWith("/trpc")) {
     const procedures = url.pathname.replace("/trpc/", "").split(",");
+    console.log("[SW] tRPC procedures:", procedures);
 
     // Check if ALL procedures are auth or webhooks (need server)
     const allServerOnly = procedures.every(
@@ -583,13 +652,24 @@ self.addEventListener("fetch", (event) => {
     // Only let through if ALL procedures need server
     // Mixed batches are handled locally (auth/webhooks return errors, others work)
     if (allServerOnly) {
+      console.log("[SW] All server-only, passing through to network");
       return; // Let it pass through to network
     }
 
     console.log("[SW] Intercepting:", url.pathname);
-    event.respondWith(handleTRPCRequest(event.request));
+    event.respondWith(
+      handleTRPCRequest(event.request).catch((err) => {
+        console.error("[SW] handleTRPCRequest error:", err);
+        return new Response(JSON.stringify({ error: String(err) }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      })
+    );
+    return;
   }
   // Other requests (static files, etc.) go to network
+  console.log("[SW] Passing through:", url.pathname);
 });
 
 export {};
