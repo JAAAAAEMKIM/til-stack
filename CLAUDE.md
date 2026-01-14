@@ -37,7 +37,9 @@ This is a **pnpm monorepo** with three workspaces:
 - tRPC routers:
   - `src/routes/entries.ts`: `upsert`, `list`, `getByDate`, `getByDateRange`, `delete`, `getWeeklySummary`, `getMonthlySummary`
   - `src/routes/config.ts`: `getSkipDays`, `addSkipWeekday`, `addSkipDate`, `removeSkipDay`, `getTemplates`, `getDefaultTemplate`, `createTemplate`, `updateTemplate`, `deleteTemplate`, `setDefaultTemplate`
-- Database schema: `src/db/schema.ts` (tables: `entries`, `skip_days`, `templates`)
+  - `src/routes/webhooks.ts`: `list`, `create`, `update`, `delete`, `test`
+- Webhook scheduler: `src/lib/webhook-scheduler.ts` (node-cron based job management)
+- Database schema: `src/db/schema.ts` (tables: `entries`, `skip_days`, `templates`, `webhooks`)
 
 ### `apps/web` - Frontend
 - **React 19** with **Rspack** bundler
@@ -47,7 +49,7 @@ This is a **pnpm monorepo** with three workspaces:
 - Routes:
   - `/` - Daily editor + entry list with infinite scroll
   - `/monthly` - Calendar view with weekly summaries
-  - `/config` - Settings (theme, AI, skip days, templates)
+  - `/config` - Settings (theme, AI, skip days, templates, webhooks)
 - tRPC client setup: `src/lib/trpc.ts`
 - AI summarizers: `src/lib/summarizer.ts` (unified hook), with backends in `gemini-summarizer.ts`, `webllm-summarizer.ts`, `groq-summarizer.ts`, `google-ai-summarizer.ts`
 
@@ -72,6 +74,8 @@ This is a **pnpm monorepo** with three workspaces:
 - **Skip days**: Navigation skips configured weekdays/dates
 - **AI streaming**: All AI backends use async generators for streaming responses
 - **Theme system**: localStorage persistence with system preference fallback
+- **Webhook scheduling**: node-cron jobs with Map-based registry, auto-reload on startup, sync on CRUD
+- **Webhook limits**: Maximum 5 webhooks to prevent abuse
 
 ## Environment
 

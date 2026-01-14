@@ -125,3 +125,50 @@ The webhook sends a POST request with this JSON body (compatible with Slack/Disc
   "username": "TIL Reminder",
   "content": "<your custom message>"
 }
+```
+
+## Deployment
+
+### Build Output
+
+```bash
+pnpm build
+```
+
+This produces:
+- **Frontend**: `apps/web/dist/` - Static files (HTML, JS, CSS). Serve with any static hosting.
+- **Backend**: `apps/api/dist/` - Node.js application. Run with Docker.
+
+### Backend Docker Image
+
+Build from project root (Dockerfile at `apps/api/Dockerfile`):
+
+```bash
+# Build image
+docker build -f apps/api/Dockerfile -t til-api .
+
+# Run with SQLite volume mounted
+docker run -d \
+  -p 3001:3001 \
+  -v /path/to/data:/app/data \
+  -e DATABASE_PATH=/app/data/til.db \
+  -e CORS_ORIGIN=https://yourdomain.com \
+  til-api
+```
+
+### Environment Variables
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `DATABASE_PATH` | SQLite database path | `/app/data/til.db` |
+| `PORT` | API port | `3001` |
+| `CORS_ORIGIN` | Allowed origins | `https://yourdomain.com` |
+
+### CI/CD (GitHub Actions)
+
+`.github/workflows/build.yml` runs on push to main:
+
+- **build-web**: Builds frontend, uploads `web-dist` artifact
+- **build-api**: Builds Docker image, verifies it works
+
+To deploy, extend the workflow to push artifacts to your server/registry.
