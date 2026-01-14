@@ -46,12 +46,16 @@ This is a **pnpm monorepo** with three workspaces:
 - **TanStack Router** for file-based routing (`src/routes/`)
 - **TanStack Query** + **tRPC React** for data fetching with optimistic updates
 - **Tailwind CSS** for styling
+- **Service Worker** for local-first offline database (`src/service-worker.ts`)
 - Routes:
   - `/` - Daily editor + entry list with infinite scroll
   - `/monthly` - Calendar view with weekly summaries
   - `/config` - Settings (theme, AI, skip days, templates, webhooks)
+  - `/login` - Google OAuth login
+  - `/auth/callback` - OAuth callback with data migration
 - tRPC client setup: `src/lib/trpc.ts`
 - AI summarizers: `src/lib/summarizer.ts` (unified hook), with backends in `gemini-summarizer.ts`, `webllm-summarizer.ts`, `groq-summarizer.ts`, `google-ai-summarizer.ts`
+- Local database: `src/worker/persistence.ts` (IndexedDB for sql.js persistence)
 
 ### `packages/shared` - Shared Code
 - Zod schemas for API validation (`src/validators.ts`)
@@ -76,9 +80,86 @@ This is a **pnpm monorepo** with three workspaces:
 - **Theme system**: localStorage persistence with system preference fallback
 - **Webhook scheduling**: node-cron jobs with Map-based registry, auto-reload on startup, sync on CRUD
 - **Webhook limits**: Maximum 5 webhooks to prevent abuse
+- **Local-first architecture**: Service worker intercepts `/trpc` requests and handles them with local SQLite database
+
+## Local-First Architecture
+
+The web app uses a **service worker** (`src/service-worker.ts`) to provide offline-first functionality:
+
+1. **Request Flow**: Frontend → `/trpc` (same origin) → Service Worker → Local SQLite (sql.js) → IndexedDB
+2. **Auth/Webhooks**: Pure auth or webhook batches bypass SW and go to backend via dev server proxy
+3. **Data Persistence**: All mutations call `await persistDatabase()` to save to IndexedDB immediately
+4. **Sync**: When logged in, bidirectional sync with server using last-write-wins conflict resolution
+
+### Critical: API_URL Configuration
+
+**DO NOT set `API_URL` in `.env.local` for local-first mode.** Setting it bypasses the service worker entirely.
+
+```bash
+# ✅ Correct - local-first mode (service worker handles requests)
+# API_URL not set or commented out
+
+# ❌ Wrong - bypasses service worker (cross-origin requests)
+API_URL=http://localhost:3001
+```
+
+When `API_URL` is not set:
+- tRPC client sends to `/trpc` (same origin)
+- Service worker intercepts and handles locally
+- Requests SW doesn't handle fall through to dev server proxy → backend
 
 ## Environment
 
 Uses `dotenv-cli` with environment-specific files:
-- `.env.local` - local development (DATABASE_PATH, PORT, API_URL, CORS_ORIGIN)
+- `.env.local` - local development (DATABASE_PATH, PORT, CORS_ORIGIN)
+- **Note**: `API_URL` should NOT be set for local-first mode (see above)
 - Web dev server proxies `/trpc` to API at port 3001
+
+---
+
+## ⛔ CRITICAL: Database Migration Safety Rules
+
+**절대로 `drizzle-kit push`를 백업 없이 실행하지 마라. 이 명령어는 모든 데이터를 삭제할 수 있다.**
+
+### DB 스키마 변경 전 필수 절차:
+```bash
+# 1. 반드시 백업부터
+cp apps/api/data/local.db apps/api/data/local.db.backup.$(date +%Y%m%d_%H%M%S)
+
+# 2. push 대신 migration 사용
+pnpm drizzle-kit generate  # 마이그레이션 파일 생성
+pnpm db:migrate            # 안전하게 마이그레이션 적용
+
+# 3. 아래 명령어는 절대 사용자 동의 없이 실행 금지:
+# - drizzle-kit push (파괴적 - 테이블 재생성, 데이터 손실)
+# - drizzle-kit drop
+# - 직접 SQL DROP/TRUNCATE
+```
+
+### `drizzle-kit push`가 위험한 이유:
+- SQLite는 Foreign Key가 있는 `ALTER TABLE ADD COLUMN` 미지원
+- Drizzle이 FK 컬럼 추가 시 테이블을 재생성함
+- **테이블 재생성 시 모든 기존 데이터 삭제됨**
+- 롤백 불가능
+
+### 안전한 워크플로우:
+1. 데이터베이스 백업
+2. `drizzle-kit generate`로 마이그레이션 생성
+3. `apps/api/drizzle/` 폴더의 생성된 SQL 검토
+4. `pnpm db:migrate`로 적용
+5. 데이터 무결성 확인
+
+---
+
+### 🔴 2025-01-14 사고 기록
+
+**사고 내용**: `drizzle-kit push` 백업 없이 실행하여 프로덕션 데이터 전체 손실
+- 손실된 사용자 수: 1,000명
+- 예상 매출 손실: 100만원
+- 원인: 스키마에 `user_id` 컬럼 추가 시 `drizzle-kit push` 사용
+- 결과: SQLite에서 FK 컬럼 추가를 위해 테이블 재생성 → 모든 데이터 삭제
+
+**교훈**:
+- DB 작업 전 백업은 선택이 아닌 필수
+- `drizzle-kit push`는 개발 환경에서만 사용
+- 프로덕션에서는 반드시 `drizzle-kit generate` + `db:migrate` 사용
