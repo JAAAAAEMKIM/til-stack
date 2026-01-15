@@ -1,20 +1,21 @@
 import { defineConfig } from "@rspack/cli";
-import { rspack, type Configuration } from "@rspack/core";
+import { rspack } from "@rspack/core";
 import RefreshPlugin from "@rspack/plugin-react-refresh";
 import path from "path";
-import fs from "fs";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = process.env.NODE_ENV !== "production";
 const apiUrl = process.env.API_URL || "";
 
-// Main app configuration
-const mainConfig: Configuration = {
-  name: "main",
+export default defineConfig({
   mode: isDev ? "development" : "production",
   entry: {
     main: "./src/main.tsx",
+    "service-worker": {
+      import: "./src/service-worker.ts",
+      filename: "service-worker.js",
+    },
   },
   output: {
     publicPath: "/",
@@ -27,6 +28,11 @@ const mainConfig: Configuration = {
     extensions: [".ts", ".tsx", ".js", ".jsx"],
     alias: {
       "@": path.resolve(__dirname, "src"),
+    },
+    fallback: {
+      fs: false,
+      path: false,
+      crypto: false,
     },
   },
   module: {
@@ -76,48 +82,20 @@ const mainConfig: Configuration = {
     new rspack.DefinePlugin({
       "process.env.API_URL": JSON.stringify(apiUrl),
     }),
-    new rspack.CopyRspackPlugin({
-      patterns: [
-        {
-          from: "node_modules/sql.js/dist/sql-wasm.wasm",
-          to: "sql.js/sql-wasm.wasm",
-        },
-      ],
-    }),
     isDev ? new RefreshPlugin() : null,
-  ].filter(Boolean) as Configuration["plugins"],
+  ].filter(Boolean),
   devServer: {
     port: 3000,
     hot: true,
     historyApiFallback: true,
     proxy: [
       {
-        context: ["/trpc", "/auth"],
+        context: ["/trpc"],
         target: "http://localhost:3001",
       },
     ],
-    // Serve service-worker.js from disk (built by esbuild, not rspack)
-    setupMiddlewares: (middlewares) => {
-      const swPath = path.resolve(__dirname, "dist/service-worker.js");
-      middlewares.unshift((req, res, next) => {
-        if (req.url === "/service-worker.js") {
-          if (fs.existsSync(swPath)) {
-            res.setHeader("Content-Type", "application/javascript");
-            res.end(fs.readFileSync(swPath, "utf-8"));
-            return;
-          }
-        }
-        next();
-      });
-      return middlewares;
-    },
   },
   optimization: {
     minimize: !isDev,
   },
-};
-
-// Service worker is built separately by esbuild (build-sw.mjs)
-// This avoids rspack dev server injecting HMR code into the SW
-
-export default defineConfig(mainConfig);
+});

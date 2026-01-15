@@ -747,7 +747,7 @@ const MAX_WEBHOOKS = 5;
 
 function WebhooksSection() {
   const utils = trpc.useUtils();
-  const { data: webhooks, isLoading } = trpc.webhooks.list.useQuery();
+  const { data: webhooks, isLoading, isError } = trpc.webhooks.list.useQuery();
   const [isCreating, setIsCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
@@ -860,6 +860,23 @@ function WebhooksSection() {
         <CardContent className="py-8 flex justify-center">
           <Loader2 className="animate-spin" />
         </CardContent>
+      </Card>
+    );
+  }
+
+  // Handle offline/error state - webhooks require backend connection
+  if (isError || !Array.isArray(webhooks)) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Webhook className="h-5 w-5" />
+            Webhooks
+          </CardTitle>
+          <CardDescription className="text-muted-foreground">
+            {isLoading ? "Loading..." : "Unable to load webhooks. Make sure you're online and logged in."}
+          </CardDescription>
+        </CardHeader>
       </Card>
     );
   }

@@ -10,16 +10,24 @@ import "./styles/globals.css";
 
 initTheme();
 
-// Register Service Worker for offline local database support
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker
-    .register("/service-worker.js")
-    .then((registration) => {
-      console.log("[App] Service Worker registered:", registration.scope);
-    })
-    .catch((error) => {
-      console.error("[App] Service Worker registration failed:", error);
-    });
+// Register Service Worker and wait for it to be ready before rendering
+// This ensures the SW can intercept requests even when offline
+async function registerServiceWorker(): Promise<void> {
+  if (!("serviceWorker" in navigator)) {
+    console.log("[App] Service Worker not supported");
+    return;
+  }
+
+  try {
+    const registration = await navigator.serviceWorker.register("/service-worker.js");
+    console.log("[App] Service Worker registered:", registration.scope);
+
+    // Wait for the SW to be ready and controlling this page
+    await navigator.serviceWorker.ready;
+    console.log("[App] Service Worker ready and controlling");
+  } catch (error) {
+    console.error("[App] Service Worker registration failed:", error);
+  }
 }
 
 const router = createRouter({ routeTree });
@@ -61,8 +69,11 @@ function App() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>
-);
+// Wait for SW before rendering to ensure offline requests are handled
+registerServiceWorker().then(() => {
+  createRoot(document.getElementById("root")!).render(
+    <StrictMode>
+      <App />
+    </StrictMode>
+  );
+});

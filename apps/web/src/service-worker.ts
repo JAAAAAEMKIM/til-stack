@@ -6,11 +6,8 @@ console.log("🚀 Service Worker script loaded!");
 import initSqlJs, { type Database } from "sql.js";
 import { loadFromIndexedDB, saveToIndexedDB } from "./worker/persistence";
 
-const SW_VERSION = "2026-01-14-v4-wasm-fix";
+const SW_VERSION = "2026-01-15-v1";
 const CACHE_NAME = "til-stack-v1";
-const STATIC_ASSETS = [
-  "/sql.js/sql-wasm.wasm",
-];
 
 let sqliteDb: Database | null = null;
 let isLoggedIn = false;
@@ -510,16 +507,7 @@ async function handleTRPCRequest(request: Request): Promise<Response> {
 // Service Worker event handlers
 self.addEventListener("install", (event) => {
   console.log(`[SW] Installing version ${SW_VERSION}...`);
-  event.waitUntil(
-    Promise.all([
-      self.skipWaiting(),
-      // Cache static assets needed for offline operation
-      caches.open(CACHE_NAME).then((cache) => {
-        console.log("[SW] Caching static assets");
-        return cache.addAll(STATIC_ASSETS);
-      }),
-    ])
-  );
+  event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener("activate", (event) => {
@@ -615,29 +603,6 @@ self.addEventListener("fetch", (event) => {
 
   // Debug: Log ALL fetch events
   console.log(`[SW ${SW_VERSION}] Fetch event:`, url.pathname);
-
-  // Serve cached static assets (needed for offline sql.js wasm)
-  if (STATIC_ASSETS.includes(url.pathname)) {
-    console.log("[SW] Serving cached asset:", url.pathname);
-    event.respondWith(
-      caches.match(event.request).then((cached) => {
-        if (cached) {
-          console.log("[SW] Cache hit:", url.pathname);
-          return cached;
-        }
-        console.log("[SW] Cache miss, fetching:", url.pathname);
-        // Fallback to network and cache for future
-        return fetch(event.request).then((response) => {
-          if (response.ok) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return response;
-        });
-      })
-    );
-    return;
-  }
 
   // Local-first: Always intercept /trpc requests (except pure auth/webhook batches)
   if (url.pathname.startsWith("/trpc")) {
