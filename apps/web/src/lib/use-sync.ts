@@ -1,6 +1,6 @@
 // Hook for background sync between local and server
 import { useEffect, useRef, useCallback, useState } from "react";
-import { syncWithServer, type SyncEntry } from "./sync";
+import { fullSync, type SyncEntry } from "./sync";
 import { trpc } from "./trpc";
 
 const LAST_SYNCED_KEY = "til-last-synced";
@@ -42,18 +42,32 @@ export function useSync({ enabled, onSyncComplete, onSyncError }: UseSyncOptions
     [utils]
   );
 
-  // Perform sync (push-only)
+  // Get all server entries for pull
+  const getServerEntries = useCallback(async (): Promise<SyncEntry[]> => {
+    // Get recent entries (last 60 days should be enough for sync)
+    const result = await utils.client.entries.list.query({ limit: 100 });
+    return result.items.map((item) => ({
+      id: item.id,
+      date: item.date,
+      content: item.content,
+      userId: item.userId ?? null,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    }));
+  }, [utils]);
+
+  // Perform bidirectional sync (push + pull)
   const performSync = useCallback(async () => {
     if (syncInProgressRef.current || !enabled) return;
 
     syncInProgressRef.current = true;
     setIsSyncing(true);
-    console.log("[useSync] Starting background sync (push-only)...");
+    console.log("[useSync] Starting bidirectional sync...");
 
     try {
-      const result = await syncWithServer(upsertToServer);
+      const result = await fullSync(getServerEntries, upsertToServer);
 
-      console.log(`[useSync] Sync complete: pushed=${result.pushedToServer}`);
+      console.log(`[useSync] Sync complete: pushed=${result.pushedToServer}, pulled=${result.pulledFromServer}`);
 
       // Update last synced timestamp
       const now = new Date();
@@ -71,7 +85,7 @@ export function useSync({ enabled, onSyncComplete, onSyncError }: UseSyncOptions
       syncInProgressRef.current = false;
       setIsSyncing(false);
     }
-  }, [enabled, upsertToServer, onSyncComplete, onSyncError]);
+  }, [enabled, getServerEntries, upsertToServer, onSyncComplete, onSyncError]);
 
   // Sync on mount when enabled
   useEffect(() => {

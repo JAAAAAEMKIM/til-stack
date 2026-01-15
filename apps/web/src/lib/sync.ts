@@ -206,35 +206,45 @@ export async function fullSync(
   return result;
 }
 
-// Initial sync on login - just push local data to server without clearing
+// Initial sync on login - push local data to server, then pull merged result
 export async function initialSync(
-  migrateDataFn: (data: LocalData) => Promise<void>
-): Promise<{ synced: boolean; entriesCount: number }> {
+  migrateDataFn: (data: LocalData) => Promise<void>,
+  getServerEntriesFn?: () => Promise<SyncEntry[]>
+): Promise<{ synced: boolean; entriesCount: number; pulledCount: number }> {
   try {
     const localData = await getLocalData();
 
     if (!localData) {
       console.log("[Sync] No local data to sync");
-      return { synced: false, entriesCount: 0 };
+      // Even if no local data, pull from server
+      if (getServerEntriesFn) {
+        const pullResult = await pullFromServer(getServerEntriesFn);
+        return { synced: true, entriesCount: 0, pulledCount: pullResult.pulledFromServer };
+      }
+      return { synced: false, entriesCount: 0, pulledCount: 0 };
     }
 
     const { entries, skipDays, templates } = localData;
     const totalItems = entries.length + skipDays.length + templates.length;
 
     if (totalItems === 0) {
-      console.log("[Sync] No items to sync");
-      return { synced: false, entriesCount: 0 };
+      console.log("[Sync] No local items to push");
+    } else {
+      console.log(`[Sync] Initial sync: ${entries.length} entries, ${skipDays.length} skip days, ${templates.length} templates`);
+      // Push to server (server handles merge with existing data)
+      await migrateDataFn({ entries, skipDays, templates });
     }
 
-    console.log(`[Sync] Initial sync: ${entries.length} entries, ${skipDays.length} skip days, ${templates.length} templates`);
+    // Pull merged data from server to update local with any server-only entries
+    let pulledCount = 0;
+    if (getServerEntriesFn) {
+      console.log("[Sync] Pulling merged data from server...");
+      const pullResult = await pullFromServer(getServerEntriesFn);
+      pulledCount = pullResult.pulledFromServer;
+    }
 
-    // Push to server (server handles merge with existing data)
-    await migrateDataFn({ entries, skipDays, templates });
-
-    // DO NOT clear local database - keep it for offline use
-
-    console.log("[Sync] Initial sync complete");
-    return { synced: true, entriesCount: entries.length };
+    console.log(`[Sync] Initial sync complete: pushed=${entries.length}, pulled=${pulledCount}`);
+    return { synced: true, entriesCount: entries.length, pulledCount };
   } catch (error) {
     console.error("[Sync] Initial sync failed:", error);
     throw error;

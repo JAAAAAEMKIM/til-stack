@@ -4,16 +4,48 @@ declare const self: ServiceWorkerGlobalScope;
 console.log("🚀 Service Worker script loaded!");
 
 import initSqlJs, { type Database } from "sql.js";
-import { loadFromIndexedDB, saveToIndexedDB } from "./worker/persistence";
+import {
+  loadFromIndexedDB,
+  saveToIndexedDB,
+  setCurrentUserId,
+  hasUserData,
+  migrateAnonymousToUser,
+  clearUserDatabase,
+} from "./worker/persistence";
 
-const SW_VERSION = "2026-01-15-v1";
+const SW_VERSION = "2026-01-15-v4";
 const CACHE_NAME = "til-stack-v1";
+const SYNC_TAG = "til-stack-sync";
 
+// Current state
 let sqliteDb: Database | null = null;
-let isLoggedIn = false;
-let syncEnabled = false; // Whether to trigger background sync
+let currentUserId: string | null = null;
+let isOnline = true;
+let syncInProgress = false;
 
-// Initialize sql.js and load database
+// Pending operation types
+type PendingOperation = {
+  id: string;
+  type: "upsert" | "delete";
+  date: string;
+  content?: string;
+  createdAt: string;
+};
+
+// API base URL (for sync operations)
+const API_URL = ""; // Empty means same origin, will be proxied
+
+// Entry type for sync
+interface SyncEntry {
+  id: string;
+  date: string;
+  content: string;
+  userId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Initialize sql.js and load database for current user
 async function initDatabase(): Promise<Database> {
   if (sqliteDb) {
     console.log("[SW] Database already initialized");
@@ -40,12 +72,12 @@ async function initDatabase(): Promise<Database> {
       console.log("[SW] sql.js locateFile:", file);
       return `/sql.js/${file}`;
     },
-    // Pass cached wasm binary if available
     wasmBinary,
   });
   console.log("[SW] sql.js loaded");
 
-  const savedData = await loadFromIndexedDB();
+  // Load data for current user (null = anonymous)
+  const savedData = await loadFromIndexedDB(currentUserId);
   console.log("[SW] IndexedDB data:", savedData ? `${savedData.length} bytes` : "none");
   sqliteDb = savedData ? new SQL.Database(savedData) : new SQL.Database();
 
@@ -53,7 +85,7 @@ async function initDatabase(): Promise<Database> {
   sqliteDb.run(`
     CREATE TABLE IF NOT EXISTS entries (
       id TEXT PRIMARY KEY,
-      date TEXT NOT NULL,
+      date TEXT NOT NULL UNIQUE,
       content TEXT NOT NULL,
       user_id TEXT,
       created_at TEXT NOT NULL,
@@ -75,17 +107,439 @@ async function initDatabase(): Promise<Database> {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS sync_pending (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      date TEXT NOT NULL,
+      content TEXT,
+      created_at TEXT NOT NULL
+    );
   `);
 
   return sqliteDb;
 }
 
-// Persist database to IndexedDB
+// Close and clear current database instance
+function closeDatabase(): void {
+  if (sqliteDb) {
+    sqliteDb.close();
+    sqliteDb = null;
+  }
+}
+
+// Persist database to IndexedDB for current user
 async function persistDatabase(): Promise<void> {
   if (!sqliteDb) return;
   const data = sqliteDb.export();
-  await saveToIndexedDB(data);
+  await saveToIndexedDB(data, currentUserId);
 }
+
+// Switch to a different user's database
+async function switchToUser(userId: string | null): Promise<void> {
+  console.log(`[SW] Switching to user: ${userId || "anonymous"}`);
+
+  // Close current database
+  closeDatabase();
+
+  // Update current user
+  currentUserId = userId;
+  setCurrentUserId(userId);
+
+  // Database will be initialized on next request
+}
+
+// ====== PENDING OPERATIONS ======
+
+// Add a pending operation (when offline)
+async function addPendingOperation(op: Omit<PendingOperation, "id" | "createdAt">): Promise<void> {
+  const db = await initDatabase();
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  // Check if there's already a pending operation for this date
+  db.run(`DELETE FROM sync_pending WHERE date = ?`, [op.date]);
+
+  db.run(
+    `INSERT INTO sync_pending (id, type, date, content, created_at) VALUES (?, ?, ?, ?, ?)`,
+    [id, op.type, op.date, op.content ?? null, now]
+  );
+  await persistDatabase();
+  console.log(`[SW] Added pending ${op.type} for date ${op.date}`);
+}
+
+// Get all pending operations
+async function getPendingOperations(): Promise<PendingOperation[]> {
+  const db = await initDatabase();
+  const results = db.exec(`SELECT * FROM sync_pending ORDER BY created_at ASC`);
+  return results[0]?.values.map((row) => ({
+    id: row[0] as string,
+    type: row[1] as "upsert" | "delete",
+    date: row[2] as string,
+    content: row[3] as string | undefined,
+    createdAt: row[4] as string,
+  })) || [];
+}
+
+// Clear a specific pending operation
+async function clearPendingOperation(id: string): Promise<void> {
+  const db = await initDatabase();
+  db.run(`DELETE FROM sync_pending WHERE id = ?`, [id]);
+  await persistDatabase();
+}
+
+// Clear all pending operations
+async function clearAllPendingOperations(): Promise<void> {
+  const db = await initDatabase();
+  db.run(`DELETE FROM sync_pending`);
+  await persistDatabase();
+}
+
+// Check if there are pending operations
+async function hasPendingOperations(): Promise<boolean> {
+  const db = await initDatabase();
+  const results = db.exec(`SELECT COUNT(*) FROM sync_pending`);
+  const count = results[0]?.values[0]?.[0] as number || 0;
+  return count > 0;
+}
+
+// Register for background sync (if supported)
+async function registerBackgroundSync(): Promise<boolean> {
+  try {
+    const registration = self.registration;
+    if ("sync" in registration) {
+      await (registration as ServiceWorkerRegistration & { sync: { register: (tag: string) => Promise<void> } }).sync.register(SYNC_TAG);
+      console.log(`[SW] Background sync registered: ${SYNC_TAG}`);
+      return true;
+    }
+  } catch (error) {
+    console.warn("[SW] Background sync registration failed:", error);
+  }
+  return false;
+}
+
+// Update online status based on fetch result
+function updateOnlineStatus(online: boolean): void {
+  if (isOnline !== online) {
+    console.log(`[SW] Online status changed: ${isOnline} -> ${online}`);
+    isOnline = online;
+
+    // If back online and logged in, try to sync
+    if (online && currentUserId) {
+      processPendingOperations().catch((err) => {
+        console.warn("[SW] Auto-sync on reconnect failed:", err);
+      });
+    }
+  }
+}
+
+// Process all pending operations
+async function processPendingOperations(): Promise<{ synced: number; failed: number }> {
+  if (!isOnline || !currentUserId) {
+    console.log("[SW] Skipping pending ops: offline or not logged in");
+    return { synced: 0, failed: 0 };
+  }
+
+  if (syncInProgress) {
+    console.log("[SW] Sync already in progress");
+    return { synced: 0, failed: 0 };
+  }
+
+  syncInProgress = true;
+  console.log("[SW] Processing pending operations...");
+
+  let synced = 0;
+  let failed = 0;
+
+  try {
+    const pending = await getPendingOperations();
+    console.log(`[SW] Found ${pending.length} pending operations`);
+
+    for (const op of pending) {
+      try {
+        if (op.type === "upsert" && op.content !== undefined) {
+          await pushEntryToServer({ date: op.date, content: op.content });
+          console.log(`[SW] Synced upsert for ${op.date}`);
+        } else if (op.type === "delete") {
+          await fetch(`${API_URL}/trpc/entries.delete`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ "0": { date: op.date } }),
+          });
+          console.log(`[SW] Synced delete for ${op.date}`);
+        }
+
+        await clearPendingOperation(op.id);
+        synced++;
+      } catch (error) {
+        console.error(`[SW] Failed to sync op ${op.id}:`, error);
+        failed++;
+        // Don't clear failed operations - they'll be retried
+      }
+    }
+
+    console.log(`[SW] Pending ops complete: synced=${synced}, failed=${failed}`);
+  } finally {
+    syncInProgress = false;
+  }
+
+  return { synced, failed };
+}
+
+// ====== SYNC FUNCTIONS ======
+
+// Fetch entries from server
+async function fetchServerEntries(): Promise<SyncEntry[]> {
+  try {
+    const response = await fetch(`${API_URL}/trpc/entries.list?input=${encodeURIComponent(JSON.stringify({ "0": { limit: 1000 } }))}`, {
+      credentials: "include",
+    });
+
+    if (!response.ok) {
+      throw new Error(`Server returned ${response.status}`);
+    }
+
+    const data = await response.json();
+    const items = data.result?.data?.items || [];
+
+    return items.map((item: Record<string, unknown>) => ({
+      id: item.id as string,
+      date: item.date as string,
+      content: item.content as string,
+      userId: (item.userId as string) ?? null,
+      createdAt: item.createdAt as string,
+      updatedAt: item.updatedAt as string,
+    }));
+  } catch (error) {
+    console.error("[SW] Failed to fetch server entries:", error);
+    throw error;
+  }
+}
+
+// Push entry to server
+async function pushEntryToServer(entry: { date: string; content: string }): Promise<SyncEntry> {
+  const response = await fetch(`${API_URL}/trpc/entries.upsert`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ "0": entry }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Server returned ${response.status}`);
+  }
+
+  const data = await response.json();
+  const result = data.result?.data;
+
+  return {
+    id: result.id,
+    date: result.date,
+    content: result.content,
+    userId: result.userId ?? null,
+    createdAt: result.createdAt,
+    updatedAt: result.updatedAt,
+  };
+}
+
+// Get all local entries
+function getLocalEntries(db: Database): SyncEntry[] {
+  const results = db.exec(`SELECT * FROM entries ORDER BY date DESC`);
+  return results[0]?.values.map((row) => ({
+    id: row[0] as string,
+    date: row[1] as string,
+    content: row[2] as string,
+    userId: (row[3] as string) ?? null,
+    createdAt: row[4] as string,
+    updatedAt: row[5] as string,
+  })) || [];
+}
+
+// Update local entry from server data
+function updateLocalEntry(db: Database, entry: SyncEntry): void {
+  const existing = db.exec(`SELECT id FROM entries WHERE date = ?`, [entry.date]);
+
+  if (existing[0]?.values[0]) {
+    db.run(
+      `UPDATE entries SET content = ?, updated_at = ?, user_id = ? WHERE date = ?`,
+      [entry.content, entry.updatedAt, entry.userId, entry.date]
+    );
+  } else {
+    db.run(
+      `INSERT INTO entries (id, date, content, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+      [entry.id, entry.date, entry.content, entry.userId, entry.createdAt, entry.updatedAt]
+    );
+  }
+}
+
+// Pull data from server and update local
+async function pullFromServer(): Promise<number> {
+  if (!isOnline) {
+    console.log("[SW] Offline, skipping pull");
+    return 0;
+  }
+
+  console.log("[SW] Pulling from server...");
+  const db = await initDatabase();
+
+  try {
+    const serverEntries = await fetchServerEntries();
+    console.log(`[SW] Got ${serverEntries.length} entries from server`);
+
+    for (const entry of serverEntries) {
+      updateLocalEntry(db, entry);
+    }
+
+    await persistDatabase();
+    console.log(`[SW] Pull complete: ${serverEntries.length} entries`);
+    return serverEntries.length;
+  } catch (error) {
+    console.error("[SW] Pull failed:", error);
+    throw error;
+  }
+}
+
+// Push local data to server
+async function pushToServer(): Promise<number> {
+  if (!isOnline) {
+    console.log("[SW] Offline, skipping push");
+    return 0;
+  }
+
+  console.log("[SW] Pushing to server...");
+  const db = await initDatabase();
+
+  try {
+    const localEntries = getLocalEntries(db);
+    console.log(`[SW] Pushing ${localEntries.length} local entries`);
+
+    let pushed = 0;
+    for (const entry of localEntries) {
+      await pushEntryToServer({ date: entry.date, content: entry.content });
+      pushed++;
+    }
+
+    console.log(`[SW] Push complete: ${pushed} entries`);
+    return pushed;
+  } catch (error) {
+    console.error("[SW] Push failed:", error);
+    throw error;
+  }
+}
+
+// Full sync: process pending ops, push all, then pull
+async function fullSync(): Promise<{ pushed: number; pulled: number; pendingSynced: number }> {
+  if (syncInProgress) {
+    console.log("[SW] Sync already in progress");
+    return { pushed: 0, pulled: 0, pendingSynced: 0 };
+  }
+
+  syncInProgress = true;
+  console.log("[SW] Starting full sync...");
+
+  try {
+    // First process any pending operations from offline period
+    const pendingResult = await processPendingOperationsInternal();
+    const pendingSynced = pendingResult.synced;
+
+    // Then push all local entries
+    const pushed = await pushToServer();
+    const pulled = await pullFromServer();
+
+    console.log(`[SW] Full sync complete: pendingSynced=${pendingSynced}, pushed=${pushed}, pulled=${pulled}`);
+    return { pushed, pulled, pendingSynced };
+  } finally {
+    syncInProgress = false;
+  }
+}
+
+// Internal version of processPendingOperations that doesn't check syncInProgress
+async function processPendingOperationsInternal(): Promise<{ synced: number; failed: number }> {
+  if (!isOnline || !currentUserId) {
+    return { synced: 0, failed: 0 };
+  }
+
+  let synced = 0;
+  let failed = 0;
+
+  const pending = await getPendingOperations();
+  console.log(`[SW] Processing ${pending.length} pending operations`);
+
+  for (const op of pending) {
+    try {
+      if (op.type === "upsert" && op.content !== undefined) {
+        await pushEntryToServer({ date: op.date, content: op.content });
+      } else if (op.type === "delete") {
+        await fetch(`${API_URL}/trpc/entries.delete`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ "0": { date: op.date } }),
+        });
+      }
+      await clearPendingOperation(op.id);
+      synced++;
+    } catch (error) {
+      console.error(`[SW] Failed to sync op ${op.id}:`, error);
+      failed++;
+    }
+  }
+
+  return { synced, failed };
+}
+
+// Handle user login
+async function handleUserLogin(userId: string, isNewUser: boolean): Promise<{ migrated: boolean; pulled: number }> {
+  console.log(`[SW] User login: ${userId}, isNewUser: ${isNewUser}`);
+
+  let migrated = false;
+
+  if (isNewUser) {
+    // New user: migrate anonymous data to their namespace, then push to server
+    console.log("[SW] New user - migrating anonymous data");
+    migrated = await migrateAnonymousToUser(userId);
+
+    // Switch to user's database
+    await switchToUser(userId);
+
+    // Push migrated data to server, then pull merged result
+    if (migrated && isOnline) {
+      try {
+        await fullSync();
+      } catch (error) {
+        console.warn("[SW] Initial sync failed:", error);
+      }
+    }
+  } else {
+    // Existing user (possibly on new device): pull from server only
+    console.log("[SW] Existing user - pulling from server");
+
+    // Switch to user's database
+    await switchToUser(userId);
+
+    // Pull server data (don't push - we might have empty local DB)
+    if (isOnline) {
+      try {
+        const pulled = await pullFromServer();
+        return { migrated: false, pulled };
+      } catch (error) {
+        console.warn("[SW] Pull failed:", error);
+      }
+    }
+  }
+
+  return { migrated, pulled: 0 };
+}
+
+// Handle user logout
+async function handleUserLogout(): Promise<void> {
+  console.log("[SW] User logout");
+
+  // Switch back to anonymous user
+  await switchToUser(null);
+}
+
+// ====== REQUEST HANDLERS ======
 
 // Simple tRPC-like request handler for local database
 async function handleLocalRequest(
@@ -173,6 +627,26 @@ async function handleEntries(db: Database, method: string, input: unknown): Prom
         );
       }
       await persistDatabase();
+
+      // If logged in, sync this entry to server
+      if (currentUserId) {
+        if (isOnline) {
+          // Online: push directly
+          pushEntryToServer({ date, content }).catch((err) => {
+            console.warn("[SW] Background push failed:", err);
+            // If push fails, add to pending and mark offline
+            updateOnlineStatus(false);
+            addPendingOperation({ type: "upsert", date, content });
+            registerBackgroundSync();
+          });
+        } else {
+          // Offline: add to pending operations
+          await addPendingOperation({ type: "upsert", date, content });
+          await registerBackgroundSync();
+          console.log(`[SW] Offline: queued upsert for ${date}`);
+        }
+      }
+
       const result = db.exec(`SELECT * FROM entries WHERE date = ?`, [date]);
       const row = result[0].values[0];
       return {
@@ -188,6 +662,31 @@ async function handleEntries(db: Database, method: string, input: unknown): Prom
       const { date } = input as { date: string };
       db.run(`DELETE FROM entries WHERE date = ?`, [date]);
       await persistDatabase();
+
+      // If logged in, delete on server too
+      if (currentUserId) {
+        if (isOnline) {
+          // Online: delete directly
+          fetch(`${API_URL}/trpc/entries.delete`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ "0": { date } }),
+          }).catch((err) => {
+            console.warn("[SW] Background delete failed:", err);
+            // If delete fails, add to pending and mark offline
+            updateOnlineStatus(false);
+            addPendingOperation({ type: "delete", date });
+            registerBackgroundSync();
+          });
+        } else {
+          // Offline: add to pending operations
+          await addPendingOperation({ type: "delete", date });
+          await registerBackgroundSync();
+          console.log(`[SW] Offline: queued delete for ${date}`);
+        }
+      }
+
       return { success: true };
     }
     case "getByDateRange": {
@@ -273,7 +772,7 @@ async function handleEntries(db: Database, method: string, input: unknown): Prom
         const weekEndStr = weekEndDate.toISOString().split("T")[0];
 
         const weekEntries = entries.filter(
-          (e) => e.date >= weekStartStr && e.date <= weekEndStr
+          (e) => e.date && e.date >= weekStartStr && e.date <= weekEndStr
         );
 
         if (weekEntries.length > 0 || (weekStartStr >= startDate && weekStartStr <= endDate)) {
@@ -348,7 +847,6 @@ async function handleConfig(db: Database, method: string, input: unknown): Promi
     }
     case "addSkipWeekday": {
       const { weekday } = input as { weekday: number };
-      // Check if already exists
       const existing = db.exec(
         `SELECT id FROM skip_days WHERE type = 'weekday' AND value = ?`,
         [weekday.toString()]
@@ -368,7 +866,6 @@ async function handleConfig(db: Database, method: string, input: unknown): Promi
     }
     case "addSkipDate": {
       const { date } = input as { date: string };
-      // Check if already exists
       const existing = db.exec(
         `SELECT id FROM skip_days WHERE type = 'specific_date' AND value = ?`,
         [date]
@@ -437,9 +934,7 @@ async function handleConfig(db: Database, method: string, input: unknown): Promi
     case "setDefaultTemplate": {
       const { id } = input as { id: string | null };
       const now = new Date().toISOString();
-      // First, unset all defaults
       db.run(`UPDATE templates SET is_default = 0, updated_at = ?`, [now]);
-      // If an ID is provided, set that template as default
       if (id) {
         db.run(`UPDATE templates SET is_default = 1, updated_at = ? WHERE id = ?`, [now, id]);
       }
@@ -458,7 +953,6 @@ async function handleTRPCRequest(request: Request): Promise<Response> {
 
   // Handle batch requests
   if (request.method === "GET") {
-    // Query batching: ?batch=1&input=...
     const inputParam = url.searchParams.get("input");
     const input = inputParam ? JSON.parse(inputParam) : {};
 
@@ -504,7 +998,8 @@ async function handleTRPCRequest(request: Request): Promise<Response> {
   return new Response("Method not allowed", { status: 405 });
 }
 
-// Service Worker event handlers
+// ====== SERVICE WORKER EVENT HANDLERS ======
+
 self.addEventListener("install", (event) => {
   console.log(`[SW] Installing version ${SW_VERSION}...`);
   event.waitUntil(self.skipWaiting());
@@ -515,35 +1010,87 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
 });
 
+// Background Sync event - fires when device comes back online
+self.addEventListener("sync", (event: SyncEvent) => {
+  console.log(`[SW] Sync event received: ${event.tag}`);
+
+  if (event.tag === SYNC_TAG) {
+    event.waitUntil(
+      (async () => {
+        console.log("[SW] Processing background sync...");
+        updateOnlineStatus(true);
+
+        const result = await processPendingOperations();
+        console.log(`[SW] Background sync complete: synced=${result.synced}, failed=${result.failed}`);
+
+        // If there are still failures, reject to retry later
+        if (result.failed > 0) {
+          throw new Error(`${result.failed} operations failed`);
+        }
+      })()
+    );
+  }
+});
+
+// SyncEvent type for TypeScript
+interface SyncEvent extends ExtendableEvent {
+  tag: string;
+}
+
 self.addEventListener("message", async (event) => {
   const { type } = event.data;
-  if (type === "USER_LOGGED_IN") {
-    isLoggedIn = true;
-    syncEnabled = true;
-    console.log("[SW] User logged in, sync enabled");
+
+  if (type === "USER_LOGIN") {
+    // New login message format with more info
+    const { userId, isNewUser } = event.data;
+    console.log(`[SW] USER_LOGIN: userId=${userId}, isNewUser=${isNewUser}`);
+
+    try {
+      const result = await handleUserLogin(userId, isNewUser);
+      event.ports[0]?.postMessage({ success: true, ...result });
+    } catch (error) {
+      console.error("[SW] Login handling failed:", error);
+      event.ports[0]?.postMessage({ success: false, error: String(error) });
+    }
+  } else if (type === "USER_LOGGED_IN") {
+    // Legacy compatibility - treat as existing user login
+    const { userId } = event.data;
+    if (userId) {
+      await handleUserLogin(userId, false);
+    }
+    console.log("[SW] User logged in (legacy)");
   } else if (type === "USER_LOGGED_OUT") {
-    isLoggedIn = false;
-    syncEnabled = false;
-    console.log("[SW] User logged out, sync disabled");
+    await handleUserLogout();
+    console.log("[SW] User logged out");
+  } else if (type === "SYNC_NOW") {
+    // Manual sync trigger
+    console.log("[SW] Manual sync requested");
+    try {
+      const result = await fullSync();
+      event.ports[0]?.postMessage({ success: true, ...result });
+    } catch (error) {
+      console.error("[SW] Sync failed:", error);
+      event.ports[0]?.postMessage({ success: false, error: String(error) });
+    }
+  } else if (type === "CLEAR_LOCAL_DATA") {
+    // Clear current user's data
+    console.log("[SW] Clearing local data...");
+    try {
+      await clearUserDatabase(currentUserId);
+      closeDatabase();
+      event.ports[0]?.postMessage({ success: true });
+      console.log("[SW] Local data cleared");
+    } catch (error) {
+      console.error("[SW] Clear local data failed:", error);
+      event.ports[0]?.postMessage({ success: false, error: String(error) });
+    }
   } else if (type === "UPDATE_ENTRY") {
     // Update local entry from server (for sync pull)
     console.log("[SW] Updating local entry from server");
     try {
       const db = await initDatabase();
       const { entry } = event.data;
-      const existing = db.exec(`SELECT id FROM entries WHERE date = ?`, [entry.date]);
-
-      if (existing[0]?.values[0]) {
-        db.run(
-          `UPDATE entries SET content = ?, updated_at = ?, user_id = ? WHERE date = ?`,
-          [entry.content, entry.updatedAt, entry.userId, entry.date]
-        );
-      } else {
-        db.run(
-          `INSERT INTO entries (id, date, content, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-          [entry.id, entry.date, entry.content, entry.userId, entry.createdAt, entry.updatedAt]
-        );
-      }
+      updateLocalEntry(db, entry);
       await persistDatabase();
       event.ports[0]?.postMessage({ success: true });
     } catch (error) {
@@ -595,6 +1142,43 @@ self.addEventListener("message", async (event) => {
       console.error("[SW] Export failed:", error);
       event.ports[0]?.postMessage(null);
     }
+  } else if (type === "CHECK_USER_DATA") {
+    // Check if user has existing data
+    const { userId } = event.data;
+    try {
+      const hasData = await hasUserData(userId);
+      event.ports[0]?.postMessage({ hasData });
+    } catch (error) {
+      event.ports[0]?.postMessage({ hasData: false, error: String(error) });
+    }
+  } else if (type === "CHECK_PENDING_SYNC") {
+    // Check pending sync status
+    try {
+      const pending = await getPendingOperations();
+      event.ports[0]?.postMessage({
+        hasPending: pending.length > 0,
+        pendingCount: pending.length,
+        isOnline,
+      });
+    } catch (error) {
+      event.ports[0]?.postMessage({ hasPending: false, pendingCount: 0, error: String(error) });
+    }
+  } else if (type === "RETRY_SYNC") {
+    // Manual retry for pending operations (fallback when Background Sync not supported)
+    console.log("[SW] Manual retry sync requested");
+    try {
+      updateOnlineStatus(true);
+      const result = await processPendingOperations();
+      event.ports[0]?.postMessage({ success: true, ...result });
+    } catch (error) {
+      console.error("[SW] Retry sync failed:", error);
+      event.ports[0]?.postMessage({ success: false, error: String(error) });
+    }
+  } else if (type === "SET_ONLINE_STATUS") {
+    // Manual online status update (from frontend navigator.onLine events)
+    const { online } = event.data;
+    updateOnlineStatus(online);
+    event.ports[0]?.postMessage({ success: true, isOnline });
   }
 });
 
@@ -615,10 +1199,9 @@ self.addEventListener("fetch", (event) => {
     );
 
     // Only let through if ALL procedures need server
-    // Mixed batches are handled locally (auth/webhooks return errors, others work)
     if (allServerOnly) {
       console.log("[SW] All server-only, passing through to network");
-      return; // Let it pass through to network
+      return;
     }
 
     console.log("[SW] Intercepting:", url.pathname);

@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ChevronLeft, ChevronRight, Trash2, Save, Loader2, Pencil, Copy, Check, X } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { loadDraft, saveDraft, removeDraft } from "@/lib/draft";
-import { useAuth } from "@/lib/auth-context";
+// useAuth removed - service worker handles sync automatically
 import {
   getLocalDateString,
   getDateLabel,
@@ -56,12 +56,11 @@ function NewEntryCard({ date, defaultTemplate }: NewEntryCardProps) {
   });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const utils = trpc.useUtils();
-  const { syncAfterMutation } = useAuth();
 
   const upsertMutation = trpc.entries.upsert.useMutation({
     onSuccess: () => {
       removeDraft(date);
-      syncAfterMutation(); // Auto-sync after save
+      // Service worker auto-syncs with server on mutation
     },
     onSettled: () => {
       utils.entries.getByDate.invalidate();
@@ -158,7 +157,6 @@ function EntryView({ entry }: EntryViewProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const utils = trpc.useUtils();
-  const { syncAfterMutation } = useAuth();
 
   // Restore draft when entering edit mode
   const handleStartEditing = () => {
@@ -173,7 +171,7 @@ function EntryView({ entry }: EntryViewProps) {
   const upsertMutation = trpc.entries.upsert.useMutation({
     onSuccess: () => {
       removeDraft(entry.date);
-      syncAfterMutation(); // Auto-sync after update
+      // Service worker auto-syncs with server on mutation
     },
     onSettled: () => {
       utils.entries.getByDate.invalidate();
@@ -184,7 +182,7 @@ function EntryView({ entry }: EntryViewProps) {
   const deleteMutation = trpc.entries.delete.useMutation({
     onSuccess: () => {
       removeDraft(entry.date);
-      syncAfterMutation(); // Auto-sync after delete
+      // Service worker auto-syncs with server on mutation
     },
     onSettled: () => {
       utils.entries.getByDate.invalidate();

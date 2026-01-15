@@ -1,4 +1,4 @@
-import { createRoute } from "@tanstack/react-router";
+import { createRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import {
   Card,
@@ -26,11 +26,18 @@ import {
   RotateCcw,
   Play,
   Power,
+  User,
+  LogOut,
+  RefreshCw,
+  Cloud,
+  CloudOff,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useTheme, type Theme } from "@/lib/theme";
 import { useAIConfig, AI_BACKENDS, WEBLLM_MODELS, type AIBackend } from "@/lib/ai-config";
 import { useSummarizer, type SummarizerStatus } from "@/lib/summarizer";
+import { useAuth } from "@/lib/auth-context";
+import { GoogleIcon } from "@/components/icons/google";
 import { rootRoute } from "./__root";
 
 export const configRoute = createRoute({
@@ -54,12 +61,143 @@ function ConfigPage() {
     <div className="space-y-8 max-w-2xl mx-auto">
       <h1 className="text-2xl font-bold">Settings</h1>
 
+      <AccountSection />
       <AppearanceSection />
       <AISection />
       <SkipDaysSection />
       <TemplatesSection />
       <WebhooksSection />
     </div>
+  );
+}
+
+function AccountSection() {
+  const { user, isLoggedIn, isLoading, isSyncing, logout, deleteAccount, triggerSync } = useAuth();
+  const [isSigningIn, setIsSigningIn] = useState(false);
+
+  const handleLogin = async () => {
+    setIsSigningIn(true);
+    try {
+      // Directly fetch OAuth URL and redirect (skip /login page)
+      const apiUrl = process.env.API_URL || "";
+      const res = await fetch(`${apiUrl}/trpc/auth.getGoogleAuthUrl`, {
+        credentials: "include",
+      });
+      const data = await res.json();
+      // tRPC returns { result: { data: { url } } }
+      const url = data?.result?.data?.url;
+      if (url) {
+        window.location.href = url;
+      } else {
+        console.error("Failed to get OAuth URL:", data);
+        setIsSigningIn(false);
+      }
+    } catch (err) {
+      console.error("Failed to get OAuth URL:", err);
+      setIsSigningIn(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <User className="h-5 w-5" />
+            Account
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-center py-4">
+            <Loader2 className="h-6 w-6 animate-spin" />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!isLoggedIn) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <User className="h-5 w-5" />
+            Account
+          </CardTitle>
+          <CardDescription>
+            Sign in to sync your data across devices and enable webhooks
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button onClick={handleLogin} disabled={isSigningIn} className="w-full sm:w-auto">
+            {isSigningIn ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <GoogleIcon className="mr-2 h-4 w-4" />
+            )}
+            {isSigningIn ? "Signing in..." : "Sign in with Google"}
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <User className="h-5 w-5" />
+          Account
+        </CardTitle>
+        <CardDescription>
+          Signed in with Google
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span>ID: {user?.googleId.slice(0, 8)}...</span>
+        </div>
+
+        {/* Sync Status */}
+        <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+          <div className="flex items-center gap-2">
+            {isSyncing ? (
+              <RefreshCw className="h-4 w-4 animate-spin text-primary" />
+            ) : (
+              <Cloud className="h-4 w-4 text-green-500" />
+            )}
+            <div className="text-sm">
+              <span className="font-medium">
+                {isSyncing ? "Syncing..." : "Server Sync"}
+              </span>
+              <p className="text-xs text-muted-foreground">
+                {isSyncing ? "Synchronizing with server" : "Auto-sync enabled"}
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={triggerSync}
+            disabled={isSyncing}
+            title="Sync now"
+          >
+            <RefreshCw className={`h-4 w-4 ${isSyncing ? "animate-spin" : ""}`} />
+          </Button>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={logout}>
+            <LogOut className="mr-2 h-4 w-4" />
+            Log out
+          </Button>
+          <Button variant="destructive" onClick={deleteAccount}>
+            <Trash2 className="mr-2 h-4 w-4" />
+            Delete Account
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
