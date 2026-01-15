@@ -2,6 +2,7 @@ import { defineConfig } from "@rspack/cli";
 import { rspack, type Configuration } from "@rspack/core";
 import RefreshPlugin from "@rspack/plugin-react-refresh";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -95,66 +96,28 @@ const mainConfig: Configuration = {
         target: "http://localhost:3001",
       },
     ],
+    // Serve service-worker.js from disk (built by esbuild, not rspack)
+    setupMiddlewares: (middlewares) => {
+      const swPath = path.resolve(__dirname, "dist/service-worker.js");
+      middlewares.unshift((req, res, next) => {
+        if (req.url === "/service-worker.js") {
+          if (fs.existsSync(swPath)) {
+            res.setHeader("Content-Type", "application/javascript");
+            res.end(fs.readFileSync(swPath, "utf-8"));
+            return;
+          }
+        }
+        next();
+      });
+      return middlewares;
+    },
   },
   optimization: {
     minimize: !isDev,
   },
 };
 
-// Service Worker configuration - built separately without HMR/dev server pollution
-const serviceWorkerConfig: Configuration = {
-  name: "service-worker",
-  mode: isDev ? "development" : "production",
-  target: "webworker",
-  entry: {
-    "service-worker": "./src/service-worker.ts",
-  },
-  output: {
-    publicPath: "/",
-    filename: "[name].js",
-    // Don't clean - main config handles that
-    clean: false,
-  },
-  resolve: {
-    extensions: [".ts", ".tsx", ".js", ".jsx"],
-    alias: {
-      "@": path.resolve(__dirname, "src"),
-    },
-    fallback: {
-      // sql.js tries to require these Node.js modules but doesn't need them in browser
-      fs: false,
-      path: false,
-      crypto: false,
-    },
-  },
-  module: {
-    rules: [
-      {
-        test: /\.tsx?$/,
-        use: {
-          loader: "builtin:swc-loader",
-          options: {
-            jsc: {
-              parser: {
-                syntax: "typescript",
-                tsx: true,
-              },
-            },
-          },
-        },
-        exclude: /node_modules/,
-      },
-    ],
-  },
-  plugins: [
-    new rspack.DefinePlugin({
-      "process.env.API_URL": JSON.stringify(apiUrl),
-    }),
-  ],
-  optimization: {
-    minimize: !isDev,
-  },
-  // No dev server for service worker - it should be a static build
-};
+// Service worker is built separately by esbuild (build-sw.mjs)
+// This avoids rspack dev server injecting HMR code into the SW
 
-export default defineConfig([mainConfig, serviceWorkerConfig]);
+export default defineConfig(mainConfig);
