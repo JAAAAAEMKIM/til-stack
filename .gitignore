@@ -15,3 +15,9 @@ dist/
 
 # Playwright MCP
 .playwright-mcp/
+
+# Test output
+test-results/
+
+# Internal tools
+.sisyphus/

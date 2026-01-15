@@ -12,6 +12,10 @@ export default defineConfig({
   mode: isDev ? "development" : "production",
   entry: {
     main: "./src/main.tsx",
+    "service-worker": {
+      import: "./src/service-worker.ts",
+      filename: "service-worker.js",
+    },
   },
   output: {
     publicPath: "/",
@@ -24,6 +28,11 @@ export default defineConfig({
     extensions: [".ts", ".tsx", ".js", ".jsx"],
     alias: {
       "@": path.resolve(__dirname, "src"),
+    },
+    fallback: {
+      fs: false,
+      path: false,
+      crypto: false,
     },
   },
   module: {

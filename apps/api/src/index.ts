@@ -6,6 +6,14 @@ import { cors } from "hono/cors";
 import { appRouter } from "./routes/index.js";
 import { db, schema } from "./db/index.js";
 import { scheduleAllWebhooks } from "./lib/webhook-scheduler.js";
+import {
+  getOrCreateUser,
+  createSessionToken,
+  setSessionCookie,
+  clearSessionCookie,
+  getUserFromContext,
+} from "./lib/auth.js";
+import type { Context } from "./routes/trpc.js";
 import type { DayOfWeek } from "@til-stack/shared";
 
 const app = new Hono();
@@ -45,11 +53,74 @@ app.use(
 // Health check
 app.get("/health", (c) => c.json({ status: "ok" }));
 
-// tRPC handler
+// Dev login endpoint (only in non-production)
+if (process.env.NODE_ENV !== "production") {
+  app.post("/auth/dev-login", async (c) => {
+    try {
+      const body = await c.req.json();
+      const googleId = body.googleId;
+
+      if (!googleId || typeof googleId !== "string") {
+        return c.text("googleId is required", 400);
+      }
+
+      // Prefix dev accounts to distinguish them
+      const devGoogleId = googleId.startsWith("dev_") ? googleId : `dev_${googleId}`;
+
+      // Get or create user
+      const { user, isNewUser } = await getOrCreateUser(devGoogleId);
+
+      // Create session
+      const sessionToken = await createSessionToken(user);
+      setSessionCookie(c, sessionToken);
+
+      console.log(`[Dev Login] User logged in: ${user.id} (${devGoogleId}), isNewUser: ${isNewUser}`);
+
+      return c.json({
+        success: true,
+        isNewUser,
+        user: { id: user.id, googleId: user.googleId },
+      });
+    } catch (error) {
+      console.error("[Dev Login] Failed:", error);
+      return c.text("Dev login failed", 500);
+    }
+  });
+}
+
+// Set session endpoint (used by OAuth callback to set cookie)
+app.post("/auth/set-session", async (c) => {
+  try {
+    const body = await c.req.json();
+    const token = body.token;
+
+    if (!token || typeof token !== "string") {
+      return c.text("Token is required", 400);
+    }
+
+    setSessionCookie(c, token);
+    return c.json({ success: true });
+  } catch (error) {
+    console.error("[Auth] Set session failed:", error);
+    return c.text("Set session failed", 500);
+  }
+});
+
+// Logout endpoint
+app.post("/auth/logout", (c) => {
+  clearSessionCookie(c);
+  return c.json({ success: true });
+});
+
+// tRPC handler with context
 app.use(
   "/trpc/*",
   trpcServer({
     router: appRouter,
+    createContext: async (_opts, c): Promise<Context> => {
+      const user = await getUserFromContext(c);
+      return { user };
+    },
   })
 );
 

@@ -1,9 +1,22 @@
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 
+// Users table for authentication
+export const users = sqliteTable("users", {
+  id: text("id").primaryKey(),
+  googleId: text("google_id").notNull().unique(),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+export type UserRow = typeof users.$inferSelect;
+export type InsertUserRow = typeof users.$inferInsert;
+
 export const entries = sqliteTable("entries", {
   id: text("id").primaryKey(),
-  date: text("date").notNull().unique(), // YYYY-MM-DD
+  date: text("date").notNull(), // YYYY-MM-DD (unique per user)
   content: text("content").notNull(),
+  userId: text("user_id"), // nullable for backward compatibility
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -20,6 +33,7 @@ export const skipDays = sqliteTable("skip_days", {
   id: text("id").primaryKey(),
   type: text("type").notNull(), // "weekday" | "specific_date"
   value: text("value").notNull(), // weekday: "0"-"6" (Sun-Sat), specific: "YYYY-MM-DD"
+  userId: text("user_id"), // nullable for backward compatibility
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -34,6 +48,7 @@ export const templates = sqliteTable("templates", {
   name: text("name").notNull(),
   content: text("content").notNull(),
   isDefault: integer("is_default", { mode: "boolean" }).notNull().default(false),
+  userId: text("user_id"), // nullable for backward compatibility
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -55,6 +70,7 @@ export const webhooks = sqliteTable("webhooks", {
   days: text("days").notNull(), // JSON array: ["mon","tue","wed","thu","fri"]
   timezone: text("timezone").notNull().default("UTC"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  userId: text("user_id"), // nullable for backward compatibility
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),

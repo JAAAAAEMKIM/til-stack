@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ChevronLeft, ChevronRight, Trash2, Save, Loader2, Pencil, Copy, Check, X } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { loadDraft, saveDraft, removeDraft } from "@/lib/draft";
+// useAuth removed - service worker handles sync automatically
 import {
   getLocalDateString,
   getDateLabel,
@@ -59,6 +60,7 @@ function NewEntryCard({ date, defaultTemplate }: NewEntryCardProps) {
   const upsertMutation = trpc.entries.upsert.useMutation({
     onSuccess: () => {
       removeDraft(date);
+      // Service worker auto-syncs with server on mutation
     },
     onSettled: () => {
       utils.entries.getByDate.invalidate();
@@ -169,6 +171,7 @@ function EntryView({ entry }: EntryViewProps) {
   const upsertMutation = trpc.entries.upsert.useMutation({
     onSuccess: () => {
       removeDraft(entry.date);
+      // Service worker auto-syncs with server on mutation
     },
     onSettled: () => {
       utils.entries.getByDate.invalidate();
@@ -179,6 +182,7 @@ function EntryView({ entry }: EntryViewProps) {
   const deleteMutation = trpc.entries.delete.useMutation({
     onSuccess: () => {
       removeDraft(entry.date);
+      // Service worker auto-syncs with server on mutation
     },
     onSettled: () => {
       utils.entries.getByDate.invalidate();
@@ -354,13 +358,7 @@ function HomePage() {
   const { data: skipDaysConfig } = trpc.config.getSkipDays.useQuery();
   const { data: defaultTemplate } = trpc.config.getDefaultTemplate.useQuery();
 
-  // Fetch entry for selected date
-  const { data: entry, isFetching: isLoadingEntry } = trpc.entries.getByDate.useQuery(
-    { date: selectedDate },
-    { staleTime: 0 }
-  );
-
-  // Infinite scroll list
+  // Infinite scroll list (fetch first so we can use as placeholder)
   const {
     data: entriesData,
     fetchNextPage,
@@ -371,6 +369,19 @@ function HomePage() {
     {
       getNextPageParam: (lastPage) => lastPage.nextCursor,
       staleTime: 0,
+    }
+  );
+
+  // Compute allEntries early for placeholderData
+  const allEntries = entriesData?.pages.flatMap((page) => page.items) ?? [];
+
+  // Fetch entry for selected date
+  // Use placeholderData to show entry from list immediately (no loader flicker)
+  const { data: entry, isLoading: isLoadingEntry } = trpc.entries.getByDate.useQuery(
+    { date: selectedDate },
+    {
+      staleTime: 0,
+      placeholderData: () => allEntries.find((e) => e.date === selectedDate),
     }
   );
 
@@ -408,7 +419,6 @@ function HomePage() {
     [isFetchingNextPage, hasNextPage, fetchNextPage]
   );
 
-  const allEntries = entriesData?.pages.flatMap((page) => page.items) ?? [];
   const stackEntries = allEntries.filter((e) => e.date < selectedDate);
   const isToday = selectedDate === today;
 
