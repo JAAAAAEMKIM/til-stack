@@ -9,15 +9,26 @@ import {
   monthlyInputSchema,
 } from "@til-stack/shared";
 import { db, schema } from "../db/index.js";
-import { eq, desc, lt, and, gte, lte } from "drizzle-orm";
+import { eq, desc, lt, and, gte, lte, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
+// Helper to create user filter condition (handles null userId for anonymous users)
+function userFilter(userId: string | null | undefined) {
+  return userId ? eq(schema.entries.userId, userId) : isNull(schema.entries.userId);
+}
+
 export const entriesRouter = router({
-  upsert: publicProcedure.input(upsertEntrySchema).mutation(async ({ input }) => {
+  upsert: publicProcedure.input(upsertEntrySchema).mutation(async ({ input, ctx }) => {
+    const userId = ctx.user?.id ?? null;
     const existing = await db
       .select()
       .from(schema.entries)
-      .where(eq(schema.entries.date, input.date))
+      .where(
+        and(
+          eq(schema.entries.date, input.date),
+          userFilter(userId)
+        )
+      )
       .get();
 
     if (existing) {
@@ -27,7 +38,12 @@ export const entriesRouter = router({
           content: input.content,
           updatedAt: new Date().toISOString(),
         })
-        .where(eq(schema.entries.date, input.date))
+        .where(
+          and(
+            eq(schema.entries.date, input.date),
+            userFilter(userId)
+          )
+        )
         .returning()
         .get();
       return updated;
@@ -38,6 +54,7 @@ export const entriesRouter = router({
           id: nanoid(),
           date: input.date,
           content: input.content,
+          userId,
         })
         .returning()
         .get();
@@ -45,18 +62,27 @@ export const entriesRouter = router({
     }
   }),
 
-  list: publicProcedure.input(listEntriesSchema).query(async ({ input }) => {
+  list: publicProcedure.input(listEntriesSchema).query(async ({ input, ctx }) => {
     const { cursor, limit } = input;
-
-    const baseQuery = db.select().from(schema.entries);
+    const userId = ctx.user?.id ?? null;
 
     const items = cursor
-      ? await baseQuery
-          .where(lt(schema.entries.date, cursor))
+      ? await db
+          .select()
+          .from(schema.entries)
+          .where(
+            and(
+              lt(schema.entries.date, cursor),
+              userFilter(userId)
+            )
+          )
           .orderBy(desc(schema.entries.date))
           .limit(limit + 1)
           .all()
-      : await baseQuery
+      : await db
+          .select()
+          .from(schema.entries)
+          .where(userFilter(userId))
           .orderBy(desc(schema.entries.date))
           .limit(limit + 1)
           .all();
@@ -70,23 +96,31 @@ export const entriesRouter = router({
     };
   }),
 
-  getByDate: publicProcedure.input(getByDateSchema).query(async ({ input }) => {
+  getByDate: publicProcedure.input(getByDateSchema).query(async ({ input, ctx }) => {
+    const userId = ctx.user?.id ?? null;
     const entry = await db
       .select()
       .from(schema.entries)
-      .where(eq(schema.entries.date, input.date))
+      .where(
+        and(
+          eq(schema.entries.date, input.date),
+          userFilter(userId)
+        )
+      )
       .get();
     return entry ?? null;
   }),
 
-  getByDateRange: publicProcedure.input(getByDateRangeSchema).query(async ({ input }) => {
+  getByDateRange: publicProcedure.input(getByDateRangeSchema).query(async ({ input, ctx }) => {
+    const userId = ctx.user?.id ?? null;
     const entries = await db
       .select()
       .from(schema.entries)
       .where(
         and(
           gte(schema.entries.date, input.startDate),
-          lte(schema.entries.date, input.endDate)
+          lte(schema.entries.date, input.endDate),
+          userFilter(userId)
         )
       )
       .orderBy(desc(schema.entries.date))
@@ -94,14 +128,21 @@ export const entriesRouter = router({
     return entries;
   }),
 
-  delete: publicProcedure.input(deleteEntrySchema).mutation(async ({ input }) => {
+  delete: publicProcedure.input(deleteEntrySchema).mutation(async ({ input, ctx }) => {
+    const userId = ctx.user?.id ?? null;
     await db
       .delete(schema.entries)
-      .where(eq(schema.entries.date, input.date));
+      .where(
+        and(
+          eq(schema.entries.date, input.date),
+          userFilter(userId)
+        )
+      );
     return { success: true };
   }),
 
-  getWeeklySummary: publicProcedure.input(weeklyInputSchema).query(async ({ input }) => {
+  getWeeklySummary: publicProcedure.input(weeklyInputSchema).query(async ({ input, ctx }) => {
+    const userId = ctx.user?.id ?? null;
     const weekStart = new Date(input.weekStart);
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 6);
@@ -114,7 +155,8 @@ export const entriesRouter = router({
       .where(
         and(
           gte(schema.entries.date, input.weekStart),
-          lte(schema.entries.date, weekEndStr)
+          lte(schema.entries.date, weekEndStr),
+          userFilter(userId)
         )
       )
       .orderBy(desc(schema.entries.date))
@@ -128,7 +170,8 @@ export const entriesRouter = router({
     };
   }),
 
-  getMonthlySummary: publicProcedure.input(monthlyInputSchema).query(async ({ input }) => {
+  getMonthlySummary: publicProcedure.input(monthlyInputSchema).query(async ({ input, ctx }) => {
+    const userId = ctx.user?.id ?? null;
     const [year, month] = input.month.split("-").map(Number);
     const startDate = `${input.month}-01`;
     const lastDay = new Date(year, month, 0).getDate();
@@ -140,7 +183,8 @@ export const entriesRouter = router({
       .where(
         and(
           gte(schema.entries.date, startDate),
-          lte(schema.entries.date, endDate)
+          lte(schema.entries.date, endDate),
+          userFilter(userId)
         )
       )
       .orderBy(desc(schema.entries.date))

@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 // Users table for authentication
 export const users = sqliteTable("users", {
@@ -23,7 +23,9 @@ export const entries = sqliteTable("entries", {
   updatedAt: text("updated_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
-});
+}, (table) => [
+  uniqueIndex("entries_date_user_idx").on(table.date, table.userId),
+]);
 
 export type EntryRow = typeof entries.$inferSelect;
 export type InsertEntryRow = typeof entries.$inferInsert;

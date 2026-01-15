@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "d29b7bc1-0dc4-414e-9bd7-d5a6e3d48d7e",
-  "prevId": "477eb9be-a321-4977-a80a-15a9e08f6b97",
+  "id": "85bfae34-d9bf-457f-a07f-0eeb0dc4e608",
+  "prevId": "9e5e5cae-8b15-4ef2-ba97-1c29e3272769",
   "tables": {
     "entries": {
       "name": "entries",
@@ -50,22 +50,17 @@
           "autoincrement": false
         }
       },
-      "indexes": {},
-      "foreignKeys": {
-        "entries_user_id_users_id_fk": {
-          "name": "entries_user_id_users_id_fk",
-          "tableFrom": "entries",
-          "tableTo": "users",
-          "columnsFrom": [
+      "indexes": {
+        "entries_date_user_idx": {
+          "name": "entries_date_user_idx",
+          "columns": [
+            "date",
             "user_id"
           ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "isUnique": true
         }
       },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
@@ -110,21 +105,7 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {
-        "skip_days_user_id_users_id_fk": {
-          "name": "skip_days_user_id_users_id_fk",
-          "tableFrom": "skip_days",
-          "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
@@ -184,21 +165,7 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {
-        "templates_user_id_users_id_fk": {
-          "name": "templates_user_id_users_id_fk",
-          "tableFrom": "templates",
-          "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
@@ -308,7 +275,7 @@
           "name": "user_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
         "created_at": {
@@ -327,21 +294,7 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {
-        "webhooks_user_id_users_id_fk": {
-          "name": "webhooks_user_id_users_id_fk",
-          "tableFrom": "webhooks",
-          "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}

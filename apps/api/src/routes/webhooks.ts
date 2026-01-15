@@ -7,13 +7,18 @@ import {
   type DayOfWeek,
 } from "@til-stack/shared";
 import { db, schema } from "../db/index.js";
-import { eq, count } from "drizzle-orm";
+import { eq, count, and, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import {
   scheduleWebhook,
   cancelWebhook,
   testWebhook,
 } from "../lib/webhook-scheduler.js";
+
+// Helper to create user filter condition for webhooks (handles null userId for anonymous users)
+function webhooksUserFilter(userId: string | null | undefined) {
+  return userId ? eq(schema.webhooks.userId, userId) : isNull(schema.webhooks.userId);
+}
 
 // Maximum number of webhooks allowed (to prevent abuse)
 const MAX_WEBHOOKS = 5;
@@ -44,20 +49,27 @@ function toWebhookConfig(row: typeof schema.webhooks.$inferSelect) {
 }
 
 export const webhooksRouter = router({
-  // List all webhooks
-  list: publicProcedure.query(async () => {
-    const rows = await db.select().from(schema.webhooks).all();
+  // List all webhooks for the current user
+  list: publicProcedure.query(async ({ ctx }) => {
+    const userId = ctx.user?.id ?? null;
+    const rows = await db
+      .select()
+      .from(schema.webhooks)
+      .where(webhooksUserFilter(userId))
+      .all();
     return rows.map(toWebhookConfig);
   }),
 
-  // Create a new webhook
+  // Create a new webhook for the current user
   create: publicProcedure
     .input(createWebhookSchema)
-    .mutation(async ({ input }) => {
-      // Check webhook limit
+    .mutation(async ({ input, ctx }) => {
+      const userId = ctx.user?.id ?? null;
+      // Check webhook limit per user
       const [{ value: webhookCount }] = await db
         .select({ value: count() })
-        .from(schema.webhooks);
+        .from(schema.webhooks)
+        .where(webhooksUserFilter(userId));
 
       if (webhookCount >= MAX_WEBHOOKS) {
         throw new Error(
@@ -77,6 +89,7 @@ export const webhooksRouter = router({
           days: JSON.stringify(input.days),
           timezone: input.timezone,
           enabled: input.enabled,
+          userId,
         })
         .returning()
         .get();
@@ -89,10 +102,11 @@ export const webhooksRouter = router({
       return webhook;
     }),
 
-  // Update an existing webhook
+  // Update an existing webhook (only if owned by user)
   update: publicProcedure
     .input(updateWebhookSchema)
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const userId = ctx.user?.id ?? null;
       const { id, days, ...updates } = input;
 
       const updateData: Record<string, unknown> = {
@@ -107,7 +121,12 @@ export const webhooksRouter = router({
       const row = await db
         .update(schema.webhooks)
         .set(updateData)
-        .where(eq(schema.webhooks.id, id))
+        .where(
+          and(
+            eq(schema.webhooks.id, id),
+            webhooksUserFilter(userId)
+          )
+        )
         .returning()
         .get();
 
@@ -123,28 +142,40 @@ export const webhooksRouter = router({
       return webhook;
     }),
 
-  // Delete a webhook
+  // Delete a webhook (only if owned by user)
   delete: publicProcedure
     .input(deleteWebhookSchema)
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const userId = ctx.user?.id ?? null;
       // Cancel the scheduled job first
       cancelWebhook(input.id);
 
       await db
         .delete(schema.webhooks)
-        .where(eq(schema.webhooks.id, input.id));
+        .where(
+          and(
+            eq(schema.webhooks.id, input.id),
+            webhooksUserFilter(userId)
+          )
+        );
 
       return { success: true };
     }),
 
-  // Test a webhook (send immediately)
+  // Test a webhook (send immediately, only if owned by user)
   test: publicProcedure
     .input(testWebhookSchema)
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const userId = ctx.user?.id ?? null;
       const row = await db
         .select()
         .from(schema.webhooks)
-        .where(eq(schema.webhooks.id, input.id))
+        .where(
+          and(
+            eq(schema.webhooks.id, input.id),
+            webhooksUserFilter(userId)
+          )
+        )
         .get();
 
       if (!row) {
