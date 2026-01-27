@@ -23,6 +23,7 @@ export const entries = sqliteTable("entries", {
   updatedAt: text("updated_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
+  deletedAt: text("deleted_at"), // Soft delete tombstone for sync
 }, (table) => [
   uniqueIndex("entries_date_user_idx").on(table.date, table.userId),
 ]);

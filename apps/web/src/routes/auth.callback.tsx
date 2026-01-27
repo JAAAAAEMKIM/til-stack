@@ -104,19 +104,26 @@ function AuthCallbackPage() {
           console.log(`[Auth] Login: isNewUser=${isNewUser}, hasLocalData=${hasLocalData}`);
 
           // Tell service worker to handle login with appropriate sync strategy
+          // Only migrate anonymous data for NEW users
+          // Existing users should NOT merge anonymous data - it stays separate
           try {
             const syncResult = await sendToServiceWorker<{
               success: boolean;
               migrated: boolean;
+              merged: boolean;
               pulled: number;
+              mergedEntries: number;
             }>({
               type: "USER_LOGIN",
               userId: result.user.id,
               isNewUser: isNewUser,
+              mergeAnonymous: isNewUser, // Only merge for new users, not returning users
             });
 
             if (syncResult.migrated) {
               setSyncInfo("Migrated local data to your account");
+            } else if (syncResult.merged && syncResult.mergedEntries > 0) {
+              setSyncInfo(`Merged ${syncResult.mergedEntries} local entries to your account`);
             } else if (syncResult.pulled > 0) {
               setSyncInfo(`Synced ${syncResult.pulled} entries from server`);
             }

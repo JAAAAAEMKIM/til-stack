@@ -85,13 +85,13 @@ export default defineConfig({
     isDev ? new RefreshPlugin() : null,
   ].filter(Boolean),
   devServer: {
-    port: 3000,
+    port: Number(process.env.WEB_PORT) || 3070,
     hot: true,
     historyApiFallback: true,
     proxy: [
       {
-        context: ["/trpc"],
-        target: "http://localhost:3001",
+        context: ["/trpc", "/auth"],
+        target: process.env.API_URL || "http://localhost:3001",
       },
     ],
   },

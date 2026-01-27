@@ -188,8 +188,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
         await clearLocalData();
       }
 
-      // Notify service worker of logout
-      navigator.serviceWorker?.controller?.postMessage({ type: "USER_LOGGED_OUT" });
+      // Notify service worker of logout and WAIT for it to switch namespaces
+      await sendToServiceWorker({ type: "USER_LOGGED_OUT" });
     } catch (error) {
       console.error("Logout failed:", error);
     }
@@ -213,8 +213,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // Clear local data
       await clearLocalData();
 
-      // Notify service worker
-      navigator.serviceWorker?.controller?.postMessage({ type: "USER_LOGGED_OUT" });
+      // Notify service worker and WAIT for it to switch namespaces
+      await sendToServiceWorker({ type: "USER_LOGGED_OUT" });
     } catch (error) {
       console.error("Delete account failed:", error);
     }

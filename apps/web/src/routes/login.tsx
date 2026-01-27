@@ -12,8 +12,30 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { GoogleIcon } from "@/components/icons/google";
 import { useAuth } from "@/lib/auth-context";
+import { trpc } from "@/lib/trpc";
 import { Loader2, AlertTriangle, Code } from "lucide-react";
 import { rootRoute } from "./__root";
+
+// Helper to send message to service worker and wait for response
+async function sendToServiceWorker<T>(message: Record<string, unknown>): Promise<T> {
+  const registration = await navigator.serviceWorker?.ready;
+  if (!registration?.active) {
+    throw new Error("Service worker not ready");
+  }
+
+  return new Promise((resolve, reject) => {
+    const messageChannel = new MessageChannel();
+    messageChannel.port1.onmessage = (event) => {
+      if (event.data?.error) {
+        reject(new Error(event.data.error));
+      } else {
+        resolve(event.data);
+      }
+    };
+    registration.active?.postMessage(message, [messageChannel.port2]);
+    setTimeout(() => reject(new Error("Service worker timeout")), 30000);
+  });
+}
 
 export const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -24,6 +46,7 @@ export const loginRoute = createRoute({
 function LoginPage() {
   const { isLoggedIn, isLoading, refreshUser } = useAuth();
   const navigate = useNavigate();
+  const utils = trpc.useUtils();
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [devGoogleId, setDevGoogleId] = useState("");
   const [devError, setDevError] = useState("");
@@ -79,6 +102,41 @@ function LoginPage() {
         const error = await res.text();
         throw new Error(error || "Dev login failed");
       }
+
+      const data = await res.json();
+      const userId = data?.user?.id;
+      const isNewUser = data?.isNewUser ?? false;
+
+      console.log(`[DevLogin] userId=${userId}, isNewUser=${isNewUser}`);
+
+      // Tell service worker to handle login with appropriate sync strategy
+      // Only migrate anonymous data for NEW users
+      // Existing users should NOT merge anonymous data - it stays separate
+      if (userId) {
+        try {
+          await sendToServiceWorker<{
+            success: boolean;
+            migrated: boolean;
+            merged: boolean;
+            pulled: number;
+            mergedEntries: number;
+          }>({
+            type: "USER_LOGIN",
+            userId: userId,
+            isNewUser: isNewUser,
+            mergeAnonymous: isNewUser, // Only merge for new users, not returning users
+          });
+        } catch (syncError) {
+          console.warn("[DevLogin] Sync failed, continuing:", syncError);
+        }
+      }
+
+      // Reset all cached queries to clear stale data and force fresh fetch from new database
+      // Using reset() instead of invalidate() to ensure no stale data is shown
+      await utils.entries.list.reset();
+      await utils.entries.getByDate.reset();
+      await utils.config.getSkipDays.reset();
+      await utils.config.getTemplates.reset();
 
       // Refresh user state
       await refreshUser();

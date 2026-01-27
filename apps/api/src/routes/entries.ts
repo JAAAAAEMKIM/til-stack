@@ -9,7 +9,7 @@ import {
   monthlyInputSchema,
 } from "@til-stack/shared";
 import { db, schema } from "../db/index.js";
-import { eq, desc, lt, and, gte, lte, isNull } from "drizzle-orm";
+import { eq, desc, lt, and, gte, lte, isNull, or, gt } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 // Helper to create user filter condition (handles null userId for anonymous users)
@@ -63,29 +63,27 @@ export const entriesRouter = router({
   }),
 
   list: publicProcedure.input(listEntriesSchema).query(async ({ input, ctx }) => {
-    const { cursor, limit } = input;
+    const { cursor, limit, includeDeleted } = input;
     const userId = ctx.user?.id ?? null;
 
-    const items = cursor
-      ? await db
-          .select()
-          .from(schema.entries)
-          .where(
-            and(
-              lt(schema.entries.date, cursor),
-              userFilter(userId)
-            )
-          )
-          .orderBy(desc(schema.entries.date))
-          .limit(limit + 1)
-          .all()
-      : await db
-          .select()
-          .from(schema.entries)
-          .where(userFilter(userId))
-          .orderBy(desc(schema.entries.date))
-          .limit(limit + 1)
-          .all();
+    // Build filter conditions
+    const baseConditions = [userFilter(userId)];
+    if (cursor) {
+      baseConditions.push(lt(schema.entries.date, cursor));
+    }
+    // Only filter out deleted entries if not explicitly including them
+    if (!includeDeleted) {
+      baseConditions.push(isNull(schema.entries.deletedAt));
+    }
+
+    const items = await db
+      .select()
+      .from(schema.entries)
+      .where(and(...baseConditions))
+      .orderBy(desc(schema.entries.date))
+      .limit(limit + 1)
+      .all();
+
     const hasMore = items.length > limit;
     if (hasMore) items.pop();
 
@@ -104,7 +102,8 @@ export const entriesRouter = router({
       .where(
         and(
           eq(schema.entries.date, input.date),
-          userFilter(userId)
+          userFilter(userId),
+          isNull(schema.entries.deletedAt) // Exclude soft-deleted entries
         )
       )
       .get();
@@ -120,7 +119,8 @@ export const entriesRouter = router({
         and(
           gte(schema.entries.date, input.startDate),
           lte(schema.entries.date, input.endDate),
-          userFilter(userId)
+          userFilter(userId),
+          isNull(schema.entries.deletedAt) // Exclude soft-deleted entries
         )
       )
       .orderBy(desc(schema.entries.date))
@@ -130,8 +130,15 @@ export const entriesRouter = router({
 
   delete: publicProcedure.input(deleteEntrySchema).mutation(async ({ input, ctx }) => {
     const userId = ctx.user?.id ?? null;
+    const now = new Date().toISOString();
+
+    // Soft delete: set deletedAt timestamp instead of actual deletion
     await db
-      .delete(schema.entries)
+      .update(schema.entries)
+      .set({
+        deletedAt: now,
+        updatedAt: now,
+      })
       .where(
         and(
           eq(schema.entries.date, input.date),
@@ -156,7 +163,8 @@ export const entriesRouter = router({
         and(
           gte(schema.entries.date, input.weekStart),
           lte(schema.entries.date, weekEndStr),
-          userFilter(userId)
+          userFilter(userId),
+          isNull(schema.entries.deletedAt) // Exclude soft-deleted entries
         )
       )
       .orderBy(desc(schema.entries.date))
@@ -184,7 +192,8 @@ export const entriesRouter = router({
         and(
           gte(schema.entries.date, startDate),
           lte(schema.entries.date, endDate),
-          userFilter(userId)
+          userFilter(userId),
+          isNull(schema.entries.deletedAt) // Exclude soft-deleted entries
         )
       )
       .orderBy(desc(schema.entries.date))

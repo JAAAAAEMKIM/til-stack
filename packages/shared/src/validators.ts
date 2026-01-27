@@ -45,6 +45,7 @@ export const deleteEntrySchema = z.object({
 export const listEntriesSchema = z.object({
   cursor: z.string().optional(),
   limit: z.number().min(1).max(50).default(20),
+  includeDeleted: z.boolean().optional(), // Include soft-deleted entries for sync
 });
 
 export const weeklyInputSchema = z.object({

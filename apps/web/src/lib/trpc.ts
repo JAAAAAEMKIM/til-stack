@@ -1,5 +1,5 @@
 import { createTRPCReact } from "@trpc/react-query";
-import { httpBatchLink } from "@trpc/client";
+import { httpBatchLink, httpLink, splitLink } from "@trpc/client";
 import type { AppRouter } from "@til-stack/api/routes";
 
 export const trpc = createTRPCReact<AppRouter>();
@@ -17,8 +17,22 @@ const getBaseUrl = () => {
 export function createTRPCClient() {
   return trpc.createClient({
     links: [
-      httpBatchLink({
-        url: getBaseUrl(),
+      // Split auth/webhooks requests from other requests
+      // Auth and webhooks must go to server without batching with local-first queries
+      splitLink({
+        condition(op) {
+          // Auth and webhooks should never be batched with other queries
+          // They need to go directly to the server
+          return op.path.startsWith("auth.") || op.path.startsWith("webhooks.");
+        },
+        // Auth/webhooks use non-batched link (separate requests)
+        true: httpLink({
+          url: getBaseUrl(),
+        }),
+        // All other queries can be batched together (handled by service worker)
+        false: httpBatchLink({
+          url: getBaseUrl(),
+        }),
       }),
     ],
   });
