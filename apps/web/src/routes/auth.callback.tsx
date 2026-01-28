@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, CheckCircle, XCircle } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/lib/auth-context";
+import { useQueryClient } from "@tanstack/react-query";
 import { rootRoute } from "./__root";
 
 const searchSchema = z.object({
@@ -57,6 +58,7 @@ function AuthCallbackPage() {
   const { code, error } = useSearch({ from: "/auth/callback" });
   const navigate = useNavigate();
   const { refreshUser } = useAuth();
+  const queryClient = useQueryClient();
   const [status, setStatus] = useState<"loading" | "syncing" | "success" | "error">("loading");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [syncInfo, setSyncInfo] = useState<string | null>(null);
@@ -127,6 +129,11 @@ function AuthCallbackPage() {
             } else if (syncResult.pulled > 0) {
               setSyncInfo(`Synced ${syncResult.pulled} entries from server`);
             }
+
+            // CRITICAL: Invalidate all queries so they refetch from now-populated local DB
+            // This ensures the home page shows fresh data after login
+            console.log("[Auth] Invalidating all queries after sync...");
+            await queryClient.invalidateQueries();
           } catch (syncError) {
             console.warn("[Auth] Sync failed, continuing:", syncError);
             // Fallback: just notify SW of login state
@@ -134,6 +141,8 @@ function AuthCallbackPage() {
               type: "USER_LOGGED_IN",
               userId: result.user.id,
             });
+            // Still invalidate queries to ensure fresh data
+            await queryClient.invalidateQueries();
           }
 
           // Refresh user state

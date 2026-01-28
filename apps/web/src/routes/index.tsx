@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ChevronLeft, ChevronRight, Trash2, Save, Loader2, Pencil, Copy, Check, X } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { loadDraft, saveDraft, removeDraft } from "@/lib/draft";
-// useAuth removed - service worker handles sync automatically
+import { useAuth } from "@/lib/auth-context";
 import {
   getLocalDateString,
   getDateLabel,
@@ -342,6 +342,7 @@ function EntryView({ entry }: EntryViewProps) {
 // HomePage - Main component
 // =============================================================================
 function HomePage() {
+  const { isLoading: isAuthLoading } = useAuth();
   const { date: initialDate } = indexRoute.useSearch();
   const today = getLocalDateString(new Date());
   const [selectedDate, setSelectedDate] = useState(initialDate || today);
@@ -354,9 +355,13 @@ function HomePage() {
     }
   }, [initialDate]);
 
-  // Fetch config
-  const { data: skipDaysConfig } = trpc.config.getSkipDays.useQuery();
-  const { data: defaultTemplate } = trpc.config.getDefaultTemplate.useQuery();
+  // Fetch config - disabled while auth is loading to prevent race conditions
+  const { data: skipDaysConfig } = trpc.config.getSkipDays.useQuery(undefined, {
+    enabled: !isAuthLoading,
+  });
+  const { data: defaultTemplate } = trpc.config.getDefaultTemplate.useQuery(undefined, {
+    enabled: !isAuthLoading,
+  });
 
   // Infinite scroll list (fetch first so we can use as placeholder)
   const {
@@ -369,6 +374,7 @@ function HomePage() {
     {
       getNextPageParam: (lastPage) => lastPage.nextCursor,
       staleTime: 0,
+      enabled: !isAuthLoading,
     }
   );
 
@@ -382,8 +388,35 @@ function HomePage() {
     {
       staleTime: 0,
       placeholderData: () => allEntries.find((e) => e.date === selectedDate),
+      enabled: !isAuthLoading,
     }
   );
+
+  // Infinite scroll observer - hooks must be called unconditionally
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const loadMoreRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (isFetchingNextPage) return;
+      if (observerRef.current) observerRef.current.disconnect();
+      observerRef.current = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting && hasNextPage) {
+          fetchNextPage();
+        }
+      });
+      if (node) observerRef.current.observe(node);
+    },
+    [isFetchingNextPage, hasNextPage, fetchNextPage]
+  );
+
+  // Gate on auth loading - show loading spinner until auth context is ready
+  // This prevents race conditions where queries fire before SW has switched databases
+  if (isAuthLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   const handleCopy = async (text: string, id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -402,22 +435,6 @@ function HomePage() {
     setSelectedDate(date);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
-
-  // Infinite scroll observer
-  const observerRef = useRef<IntersectionObserver | null>(null);
-  const loadMoreRef = useCallback(
-    (node: HTMLDivElement | null) => {
-      if (isFetchingNextPage) return;
-      if (observerRef.current) observerRef.current.disconnect();
-      observerRef.current = new IntersectionObserver((entries) => {
-        if (entries[0].isIntersecting && hasNextPage) {
-          fetchNextPage();
-        }
-      });
-      if (node) observerRef.current.observe(node);
-    },
-    [isFetchingNextPage, hasNextPage, fetchNextPage]
-  );
 
   const stackEntries = allEntries.filter((e) => e.date < selectedDate);
   const isToday = selectedDate === today;
