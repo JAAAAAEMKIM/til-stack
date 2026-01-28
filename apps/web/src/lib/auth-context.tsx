@@ -4,8 +4,10 @@ import {
   useState,
   useEffect,
   useCallback,
+  useRef,
   type ReactNode,
 } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { trpc } from "./trpc";
 
 export interface User {
@@ -64,6 +66,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isSwReady, setIsSwReady] = useState(false);
+  const prevUserIdRef = useRef<string | null | undefined>(undefined);
+  const queryClient = useQueryClient();
 
   // Query current user
   const meQuery = trpc.auth.me.useQuery(undefined, {
@@ -75,24 +80,64 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const logoutMutation = trpc.auth.logout.useMutation();
   const deleteAccountMutation = trpc.auth.deleteAccount.useMutation();
 
-  // Sync user state with query
+  // Sync user state with query and notify service worker
+  // CRITICAL: We must AWAIT the service worker switch before setting isLoading=false
+  // Otherwise, queries will fire before the SW has switched to the correct user database
   useEffect(() => {
     if (meQuery.isLoading) {
-      setIsLoading(true);
-    } else {
-      const newUser = meQuery.data ?? null;
+      return; // Don't set isLoading=true here, it starts true
+    }
+
+    const newUser = meQuery.data ?? null;
+    const newUserId = newUser?.id ?? null;
+    const prevUserId = prevUserIdRef.current;
+
+    // Detect actual user change (not just initial load)
+    const userChanged = prevUserId !== undefined && prevUserId !== newUserId;
+    if (userChanged) {
+      console.log(`[Auth] User changed from ${prevUserId} to ${newUserId}, clearing query cache`);
+      queryClient.clear();
+    }
+
+    // Skip if same user and already ready (prevents unnecessary re-runs)
+    if (!userChanged && isSwReady && prevUserId === newUserId) {
+      return;
+    }
+
+    // Update refs before async operation
+    prevUserIdRef.current = newUserId;
+
+    // Notify service worker and WAIT for acknowledgment before proceeding
+    // This prevents race conditions where queries fire before SW switches databases
+    const notifyAndFinish = async () => {
+      // Only notify SW if user is logged in
+      if (newUser) {
+        console.log(`[Auth] Notifying SW of user ${newUserId} and waiting for response...`);
+
+        try {
+          // Use sendToServiceWorker which awaits the response
+          // This is idempotent - multiple calls with same userId are safe
+          await sendToServiceWorker({
+            type: "USER_LOGGED_IN",
+            userId: newUser.id,
+          });
+          console.log(`[Auth] SW acknowledged user switch to ${newUserId}`);
+        } catch (error) {
+          console.warn(`[Auth] SW notification failed:`, error);
+          // Continue anyway - SW might not be ready yet
+        }
+      } else {
+        console.log(`[Auth] No user logged in, proceeding without SW notification`);
+      }
+
+      // Always set these at the end
+      setIsSwReady(true);
       setUser(newUser);
       setIsLoading(false);
+    };
 
-      // Notify service worker of auth state (userId for namespaced storage)
-      if (newUser) {
-        navigator.serviceWorker?.controller?.postMessage({
-          type: "USER_LOGGED_IN",
-          userId: newUser.id,
-        });
-      }
-    }
-  }, [meQuery.isLoading, meQuery.data]);
+    notifyAndFinish();
+  }, [meQuery.isLoading, meQuery.data, queryClient, isSwReady]);
 
   // Online/offline event handlers - notify service worker for sync
   useEffect(() => {

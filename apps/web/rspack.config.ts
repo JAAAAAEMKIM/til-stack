@@ -91,7 +91,7 @@ export default defineConfig({
     proxy: [
       {
         context: ["/trpc", "/auth"],
-        target: process.env.API_URL || "http://localhost:3001",
+        target: process.env.API_URL || "http://localhost:3081",
       },
     ],
   },

@@ -124,7 +124,7 @@ app.use(
   })
 );
 
-const port = parseInt(process.env.PORT || "3001", 10);
+const port = parseInt(process.env.PORT || "3081", 10);
 
 console.log(`API server running on http://localhost:${port}`);
 console.log(`CORS origin: ${corsOrigin}`);

@@ -1854,12 +1854,24 @@ self.addEventListener("message", async (event) => {
       event.ports[0]?.postMessage({ success: false, error: String(error) });
     }
   } else if (type === "USER_LOGGED_IN") {
-    // Legacy compatibility - treat as existing user login
+    // Handle user login notification from auth-context
+    // This is sent on page load when user is already logged in (has session)
+    // IMPORTANT: We must respond via event.ports[0] so the client can await completion
     const { userId } = event.data;
-    if (userId) {
-      await handleUserLogin(userId, false);
+    console.log(`[SW] USER_LOGGED_IN received for userId=${userId}`);
+    try {
+      if (userId) {
+        const result = await handleUserLogin(userId, false);
+        console.log(`[SW] User logged in: ${userId}, result:`, result);
+        event.ports[0]?.postMessage({ success: true, ...result });
+      } else {
+        console.log("[SW] USER_LOGGED_IN with no userId, ignoring");
+        event.ports[0]?.postMessage({ success: true, skipped: true });
+      }
+    } catch (error) {
+      console.error("[SW] USER_LOGGED_IN handling failed:", error);
+      event.ports[0]?.postMessage({ success: false, error: String(error) });
     }
-    console.log("[SW] User logged in (legacy)");
   } else if (type === "USER_LOGGED_OUT") {
     await handleUserLogout();
     console.log("[SW] User logged out");
