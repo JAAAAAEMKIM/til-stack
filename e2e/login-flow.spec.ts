@@ -74,11 +74,12 @@ test.describe("Login Flow - Bug Fixes", () => {
 
     // Reload to get clean state
     await page.reload();
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("domcontentloaded");
 
     // Page should eventually show content (Stack heading)
+    // With SharedWorker, there's no networkidle event to wait for
     await expect(page.getByRole("heading", { name: "Stack" })).toBeVisible({
-      timeout: 10000,
+      timeout: 15000,
     });
   });
 
@@ -174,9 +175,9 @@ test.describe("Login Flow - Bug Fixes", () => {
     await expect(page).toHaveURL("/", { timeout: 10000 });
     await page.waitForTimeout(2000);
 
-    // Check that auth flow logged properly
+    // Check that auth flow logged properly (SharedWorker migration changed log message)
     const hasSwAcknowledge = consoleLogs.some((log) =>
-      log.includes("[Auth] SW acknowledged user switch")
+      log.includes("[Auth] SharedWorker acknowledged user switch")
     );
 
     expect(hasSwAcknowledge).toBe(true);

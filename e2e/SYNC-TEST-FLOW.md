@@ -243,17 +243,24 @@ til-stack-local
 ```
 
 ### Service Worker Messages
-- `USER_LOGIN`: Triggers login handling with migration/merge logic
-- `USER_LOGGED_OUT`: Switches to anonymous namespace
+- `USER_LOGIN`: Proper login with isNewUser flag (from auth callback/dev login)
+- `USER_LOGGED_IN`: Legacy notification for page loads (from auth-context)
+- `USER_LOGGED_OUT`: Triggers logout handling
 - `SYNC_NOW`: Triggers full bidirectional sync
 - `CHECK_PENDING_SYNC`: Returns pending operation count
+- `CLEAR_LOCAL_DATA`: Clears current user's database
+- `RETRY_SYNC`: Retries pending operations
+- `SET_ONLINE_STATUS`: Updates online/offline state
+- `EXPORT_DATA`: Exports data for migration
+- `CHECK_USER_DATA`: Checks if user has data
 
 ### Console Log Indicators
-- `[SW] User login: ...` - Login handling started
-- `[SW] Pull complete: X entries` - Server pull completed
-- `[SW] Push complete: X entries` - Server push completed
-- `[SW] Migrated anonymous data` - Anonymous → User migration
-- `[SW] Merged X anonymous entries` - Anonymous → User merge (returning user)
+- `[SW] User login: userId, isNewUser, mergeAnonymous` - Login handling started
+- `[SW] New user - migrating anonymous data` - New user migration flow
+- `[SW] Migration result: migrated=` - Migration completion status
+- `[SW] Existing user - checking for anonymous data to merge` - Existing user check
+- `[SW] Pulling from server...` - Server pull initiated
+- `[Auth] SW acknowledged user switch` - Auth context confirmation
 
 ---
 

@@ -165,12 +165,12 @@ test.describe("Multi-Device Sync", () => {
     device2Page = await device2Context.newPage();
 
     // Clear IndexedDB in both contexts
-    await device1Page.goto("http://localhost:3000/");
+    await device1Page.goto("/");
     await clearIndexedDB(device1Page);
     await device1Page.reload();
     await device1Page.waitForTimeout(2000);
 
-    await device2Page.goto("http://localhost:3000/");
+    await device2Page.goto("/");
     await clearIndexedDB(device2Page);
     await device2Page.reload();
     await device2Page.waitForTimeout(2000);
@@ -221,11 +221,6 @@ test.describe("Multi-Device Sync", () => {
 
   /**
    * Scenario 2: Bidirectional Sync
-   *
-   * 1. Device 1 creates entry A
-   * 2. Device 2 logs in, sees entry A
-   * 3. Device 2 modifies to entry B
-   * 4. Device 1 syncs and sees entry B
    */
   test("bidirectional-sync: changes sync both ways", async () => {
     const entryA = `ENTRY-A-${Date.now()}: From Device 1`;
@@ -258,11 +253,6 @@ test.describe("Multi-Device Sync", () => {
    *
    * The sync mechanism uses server-side timestamps (updatedAt is set by server on each push).
    * This means the device that pushes LAST to the server wins, regardless of local edit time.
-   *
-   * 1. Both devices logged in with same entry
-   * 2. Device 1 edits and syncs
-   * 3. Device 2 edits and syncs AFTER Device 1 (Device 2 wins)
-   * 4. Device 1 pulls and gets Device 2's version
    */
   test("conflict-resolution: last push to server wins", async () => {
     const initialEntry = `INITIAL-${Date.now()}`;
@@ -308,8 +298,6 @@ test.describe("Multi-Device Sync", () => {
    *
    * 1. Device 1 creates entry while "offline" (no sync)
    * 2. Device 2 creates different entry while "offline"
-   * 3. Both go "online" and sync
-   * 4. Last write wins
    */
   test("offline-online-sync: pending operations sync when online", async () => {
     const device1Entry = `OFFLINE-D1-${Date.now()}`;
@@ -348,8 +336,6 @@ test.describe("Multi-Device Sync", () => {
 
   /**
    * Scenario 5: Multiple Rapid Edits
-   *
-   * Rapid edits on both devices should eventually converge
    */
   test("rapid-edits: eventual consistency after multiple edits", async () => {
     // Both devices login
@@ -407,7 +393,7 @@ test.describe("Multi-Device Sync - Edge Cases", () => {
     const device1Context = await browser.newContext();
     const device1Page = await device1Context.newPage();
 
-    await device1Page.goto("http://localhost:3000/");
+    await device1Page.goto("/");
     await clearIndexedDB(device1Page);
     await device1Page.reload();
     await device1Page.waitForTimeout(2000);
@@ -436,7 +422,7 @@ test.describe("Multi-Device Sync - Edge Cases", () => {
     const device2Context = await browser.newContext();
     const device2Page = await device2Context.newPage();
 
-    await device2Page.goto("http://localhost:3000/");
+    await device2Page.goto("/");
     await clearIndexedDB(device2Page);
     await device2Page.reload();
     await device2Page.waitForTimeout(2000);

@@ -1,4 +1,4 @@
-import { test, expect, Browser, BrowserContext, Page } from "@playwright/test";
+import { test, expect, Page } from "@playwright/test";
 
 const DB_NAME = "til-stack-local";
 
@@ -16,6 +16,9 @@ async function clearIndexedDB(page: Page) {
 test.describe("Debug Sync Flow", () => {
   test.setTimeout(120000);
 
+  /**
+   * Debug test: Trace sync flow between two devices
+   */
   test("debug: trace sync flow between two devices", async ({ browser }) => {
     const testUserId = "debug-user-" + Date.now();
     const entryContent = "DEBUG-ENTRY-" + Date.now() + ": Test content";
@@ -33,25 +36,25 @@ test.describe("Debug Sync Flow", () => {
 
     device1Page.on("console", msg => {
       const text = msg.text();
-      if (text.includes("[SW]") || text.includes("[DevLogin]") || text.includes("[Auth]") || text.includes("[Persistence]")) {
+      if (text.includes("[SharedWorker]") || text.includes("[DevLogin]") || text.includes("[Auth]") || text.includes("[Persistence]")) {
         device1Logs.push("D1: " + text);
       }
     });
 
     device2Page.on("console", msg => {
       const text = msg.text();
-      if (text.includes("[SW]") || text.includes("[DevLogin]") || text.includes("[Auth]") || text.includes("[Persistence]")) {
+      if (text.includes("[SharedWorker]") || text.includes("[DevLogin]") || text.includes("[Auth]") || text.includes("[Persistence]")) {
         device2Logs.push("D2: " + text);
       }
     });
 
     // Clear IndexedDB for both
-    await device1Page.goto("http://localhost:3000/");
+    await device1Page.goto("/");
     await clearIndexedDB(device1Page);
     await device1Page.reload();
     await device1Page.waitForTimeout(2000);
 
-    await device2Page.goto("http://localhost:3000/");
+    await device2Page.goto("/");
     await clearIndexedDB(device2Page);
     await device2Page.reload();
     await device2Page.waitForTimeout(2000);
@@ -131,19 +134,8 @@ test.describe("Debug Sync Flow", () => {
 
     console.log("\n=== STEP 6: Check Device 2 Data ===");
 
-    // Check what's in Device 2's local database
-    const d2LocalData = await device2Page.evaluate(async () => {
-      const registration = await navigator.serviceWorker?.ready;
-      if (!registration?.active) return { error: "No SW" };
-
-      return new Promise((resolve) => {
-        const messageChannel = new MessageChannel();
-        messageChannel.port1.onmessage = (event) => resolve(event.data);
-        registration.active?.postMessage({ type: "DEBUG_STATE" }, [messageChannel.port2]);
-        setTimeout(() => resolve({ error: "timeout" }), 5000);
-      });
-    });
-    console.log("Device 2 SW State:", JSON.stringify(d2LocalData, null, 2));
+    // With SharedWorker architecture, we check IndexedDB directly for debugging
+    console.log("Device 2 checking via UI (SharedWorker handles data locally)");
 
     // Check if Device 2 can see the entry via UI
     await device2Page.goto("/");

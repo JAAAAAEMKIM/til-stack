@@ -1,4 +1,4 @@
-import { test, expect, Page, BrowserContext } from "@playwright/test";
+import { test, expect, Page } from "@playwright/test";
 
 /**
  * E2E Tests for Sync and Authentication Flow
@@ -166,6 +166,8 @@ test.describe("Sync Flow - Anonymous to User", () => {
   /**
    * Test 2: New User Login Migrates Anonymous Data
    * Verify anonymous data is migrated when a new user logs in
+   *
+   * Verifies that anonymous data is migrated to a new user's namespace on first login.
    */
   test("new user login migrates anonymous data", async ({ page }) => {
     await page.goto("/");
@@ -340,21 +342,13 @@ test.describe("Sync Flow - Logout/Login Cycle", () => {
    * Existing user re-login should show only server data, NOT anonymous entries
    * Anonymous entries should be preserved for when user logs out
    */
-  test("re-login does NOT merge anonymous data - shows server data only", async ({ page, context }) => {
-    // Capture ALL console logs from the beginning
+  test("re-login does NOT merge anonymous data - shows server data only", async ({ page }) => {
+    // Capture console logs for debugging
     const allConsoleLogs: string[] = [];
     page.on('console', msg => {
-      if (msg.text().includes('[SW]') || msg.text().includes('[Persistence]')) {
+      if (msg.text().includes('[SharedWorker]') || msg.text().includes('[Persistence]') || msg.text().includes('[Auth]')) {
         allConsoleLogs.push(`[Page] ${msg.text()}`);
       }
-    });
-
-    // Capture worker (service worker) logs
-    const workerLogs: string[] = [];
-    context.on('serviceworker', async (worker) => {
-      worker.on('console', msg => {
-        workerLogs.push(`[SW Worker] ${msg.text()}`);
-      });
     });
 
     // Create initial anonymous entry
@@ -411,19 +405,6 @@ test.describe("Sync Flow - Logout/Login Cycle", () => {
     await page.goto("/");
     await page.waitForTimeout(1000);
 
-    // Debug: Query SW state after first login
-    const swStateAfterFirstLogin = await page.evaluate(async () => {
-      const registration = await navigator.serviceWorker?.ready;
-      if (!registration?.active) return { error: 'SW not ready' };
-      return new Promise<Record<string, unknown>>((resolve, reject) => {
-        const messageChannel = new MessageChannel();
-        messageChannel.port1.onmessage = (event) => resolve(event.data);
-        registration.active?.postMessage({ type: 'DEBUG_STATE' }, [messageChannel.port2]);
-        setTimeout(() => reject(new Error('SW timeout')), 5000);
-      });
-    });
-    console.log('[E2E Debug] SW state after FIRST login:', JSON.stringify(swStateAfterFirstLogin, null, 2));
-
     // Logout (clearing user data display)
     await logout(page, true);
 
@@ -443,19 +424,6 @@ test.describe("Sync Flow - Logout/Login Cycle", () => {
       });
     });
     console.log('[E2E Debug] IndexedDB after logout:', idbAfterLogout);
-
-    // Debug: Query SW state after logout
-    const swStateAfterLogout = await page.evaluate(async () => {
-      const registration = await navigator.serviceWorker?.ready;
-      if (!registration?.active) return { error: 'SW not ready' };
-      return new Promise<Record<string, unknown>>((resolve, reject) => {
-        const messageChannel = new MessageChannel();
-        messageChannel.port1.onmessage = (event) => resolve(event.data);
-        registration.active?.postMessage({ type: 'DEBUG_STATE' }, [messageChannel.port2]);
-        setTimeout(() => reject(new Error('SW timeout')), 5000);
-      });
-    });
-    console.log('[E2E Debug] SW state after LOGOUT:', JSON.stringify(swStateAfterLogout, null, 2));
 
     // Create/Edit anonymous entry after logout
     // Since anonymous data from entry A is preserved, we need to EDIT it or go to a different date
@@ -497,38 +465,12 @@ test.describe("Sync Flow - Logout/Login Cycle", () => {
     });
     console.log('[E2E Debug] IndexedDB after anon entry:', idbAfterAnonEntry);
 
-    // Debug: Query SW state before re-login (after creating anonymous entry)
-    const swStateBeforeRelogin = await page.evaluate(async () => {
-      const registration = await navigator.serviceWorker?.ready;
-      if (!registration?.active) return { error: 'SW not ready' };
-      return new Promise<Record<string, unknown>>((resolve, reject) => {
-        const messageChannel = new MessageChannel();
-        messageChannel.port1.onmessage = (event) => resolve(event.data);
-        registration.active?.postMessage({ type: 'DEBUG_STATE' }, [messageChannel.port2]);
-        setTimeout(() => reject(new Error('SW timeout')), 5000);
-      });
-    });
-    console.log('[E2E Debug] SW state BEFORE re-login:', JSON.stringify(swStateBeforeRelogin, null, 2));
-
     // Re-login with SAME user (now EXISTING user)
     await devLogin(page, userId);
 
-    // Force reload to ensure service worker state is fresh (like we do after first login)
+    // Force reload to ensure SharedWorker state is fresh
     await page.reload();
     await page.waitForTimeout(2000);
-
-    // Debug: Query service worker state directly
-    const swState = await page.evaluate(async () => {
-      const registration = await navigator.serviceWorker?.ready;
-      if (!registration?.active) return { error: 'SW not ready' };
-      return new Promise<Record<string, unknown>>((resolve, reject) => {
-        const messageChannel = new MessageChannel();
-        messageChannel.port1.onmessage = (event) => resolve(event.data);
-        registration.active?.postMessage({ type: 'DEBUG_STATE' }, [messageChannel.port2]);
-        setTimeout(() => reject(new Error('SW timeout')), 5000);
-      });
-    });
-    console.log('[E2E Debug] Service Worker state after re-login:', JSON.stringify(swState, null, 2));
 
     // Debug: Check IndexedDB keys and sizes after re-login
     const idbDebug = await page.evaluate(async (expectedUserId: string) => {
@@ -602,12 +544,11 @@ test.describe("Sync Flow - Logout/Login Cycle", () => {
     await page.goto("/");
     await page.waitForTimeout(3000);
 
-    // Print all SW-related logs
-    console.log('[E2E Debug] All SW/Persistence logs:');
-    for (const log of allConsoleLogs.slice(-30)) {
+    // Print debug logs
+    console.log('[E2E Debug] Console logs:');
+    for (const log of allConsoleLogs.slice(-20)) {
       console.log('  ' + log);
     }
-    console.log('[E2E Debug] Worker logs:', workerLogs.slice(-10));
 
     // The post-logout anonymous entry should NOT be merged
     const hasContent2 = await page.getByText(anonContent2.substring(0, 15)).isVisible().catch(() => false);
@@ -709,37 +650,59 @@ test.describe("Sync Flow - Server Integration", () => {
     const userId = `cross-context-${Date.now()}`;
 
     try {
-      // Setup context1
+      // Setup context1 - clear and prepare
       await page1.goto("/");
       await clearIndexedDB(page1);
       await page1.reload();
-      await page1.waitForTimeout(1500);
-
-      // Create entry and login in context1
-      const content = `Cross-Context Entry - ${Date.now()}`;
-      await createEntry(page1, content);
-      await devLogin(page1, userId);
-
-      // Wait for sync
       await page1.waitForTimeout(2000);
 
-      // Login in context2 (different browser context)
+      // Setup context2 - clear and prepare
       await page2.goto("/");
-      await page2.waitForTimeout(1000);
-      await devLogin(page2, userId);
-
-      // Wait for pull from server
+      await clearIndexedDB(page2);
+      await page2.reload();
       await page2.waitForTimeout(2000);
 
-      // Navigate to home and check for entry
+      // Context1: Login as new user FIRST, then create entry
+      await devLogin(page1, userId);
+      await page1.waitForTimeout(1500);
+
+      // Context1: Navigate to home page (devLogin leaves at /config)
+      await page1.goto("/");
+      await page1.waitForTimeout(1000);
+
+      // Context1: Create entry as logged-in user
+      const content = `Cross-Context Entry - ${Date.now()}`;
+      await createEntry(page1, content);
+      await page1.waitForTimeout(1000);
+
+      // Context1: Trigger sync to push entry to server
+      await page1.goto("/config");
+      await page1.waitForTimeout(1500);
+      const syncButton1 = page1.locator("button[title='Sync now']");
+      await syncButton1.waitFor({ state: "visible", timeout: 10000 });
+      await syncButton1.click();
+      await page1.waitForTimeout(3000);
+
+      // Context2: Login as same user (existing user - pulls from server)
+      await devLogin(page2, userId);
+      await page2.waitForTimeout(2000);
+
+      // Context2: Trigger sync explicitly to pull
+      await page2.goto("/config");
+      await page2.waitForTimeout(1000);
+      const syncButton2 = page2.locator("button[title='Sync now']");
+      if (await syncButton2.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await syncButton2.click();
+        await page2.waitForTimeout(3000);
+      }
+
+      // Context2: Navigate to home and check for entry
       await page2.goto("/");
-      await page2.waitForTimeout(1500);
+      await page2.waitForTimeout(2000);
 
       // Entry should be pulled from server
       const hasEntry = await page2.getByText(content.substring(0, 15)).isVisible().catch(() => false);
 
-      // This may fail if server sync isn't working - that's expected in test env
-      // The test documents expected behavior even if it can't fully verify
       expect(hasEntry).toBeTruthy();
     } finally {
       await context1.close();
@@ -802,30 +765,44 @@ test.describe("Sync Flow - Offline Mode", () => {
     await page.goto("/");
     await clearIndexedDB(page);
     await page.reload();
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(2000);
 
-    // Create and login
-    const content = `Edit Test Entry - ${Date.now()}`;
-    await createEntry(page, content);
-
+    // Login FIRST, then create entry (ensures entry is created under user context)
     const userId = `offline-edit-${Date.now()}`;
     await devLogin(page, userId);
+
+    // Navigate to home and wait for page to be ready
+    await page.goto("/");
+    await page.waitForTimeout(2000);
+
+    // Create entry as logged-in user - wait for textarea to be ready
+    const textarea = page.locator("textarea").first();
+    await textarea.waitFor({ state: "visible", timeout: 10000 });
+
+    const content = `Edit Test Entry - ${Date.now()}`;
+    await textarea.fill(content);
+    await page.getByRole("button", { name: "Save" }).click();
     await page.waitForTimeout(1000);
+
+    // Wait for entry to be in view mode
+    await expect(page.getByText(content.substring(0, 15))).toBeVisible({ timeout: 10000 });
 
     // Go offline
     await context.setOffline(true);
 
-    // Edit entry
+    // Edit entry - wait for edit button to be visible
     const editButton = page
       .locator("button")
       .filter({ has: page.locator("svg.lucide-pencil") })
       .first();
+    await editButton.waitFor({ state: "visible", timeout: 10000 });
     await editButton.click();
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(500);
 
-    const textarea = page.locator("textarea").first();
+    const textarea2 = page.locator("textarea").first();
+    await textarea2.waitFor({ state: "visible", timeout: 5000 });
     const editedContent = `EDITED OFFLINE - ${Date.now()}`;
-    await textarea.fill(editedContent);
+    await textarea2.fill(editedContent);
 
     const saveButton = page.getByRole("button", { name: "Save" });
     await saveButton.click();
