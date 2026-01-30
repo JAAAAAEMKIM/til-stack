@@ -21,3 +21,4 @@ test-results/
 
 # Internal tools
 .sisyphus/
+playwright-report/
