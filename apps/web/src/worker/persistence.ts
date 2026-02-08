@@ -31,6 +31,12 @@ export let lastClearResult: { key: string; sizeBeforeDelete: number | null; time
 // Track cleared keys to detect saves after clear
 export let clearedKeys: Set<string> = new Set();
 
+// Reset cleared keys tracking (call on new login to avoid false positives)
+export function resetClearedKeys(): void {
+  clearedKeys.clear();
+  console.log('[Persistence] Cleared keys tracking reset');
+}
+
 // Track the last load diagnostic
 export let lastLoadDiagnostic: { key: string; allKeysAtLoad: string[]; keyExists: boolean; dataSize: number | null } | null = null;
 

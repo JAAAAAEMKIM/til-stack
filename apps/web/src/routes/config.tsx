@@ -1,4 +1,4 @@
-import { createRoute, useNavigate } from "@tanstack/react-router";
+import { createRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import {
   Card,
@@ -524,8 +524,11 @@ function AISection() {
 }
 
 function SkipDaysSection() {
+  const { isLoading: isAuthLoading } = useAuth();
   const utils = trpc.useUtils();
-  const { data: skipDays, isLoading } = trpc.config.getSkipDays.useQuery();
+  const { data: skipDays, isLoading } = trpc.config.getSkipDays.useQuery(undefined, {
+    enabled: !isAuthLoading,  // Wait for auth to complete before querying
+  });
   const [newDate, setNewDate] = useState("");
 
   const addWeekdayMutation = trpc.config.addSkipWeekday.useMutation({
@@ -555,7 +558,7 @@ function SkipDaysSection() {
     }
   };
 
-  if (isLoading) {
+  if (isLoading || isAuthLoading) {
     return (
       <Card>
         <CardContent className="py-8 flex justify-center">
@@ -643,8 +646,11 @@ function SkipDaysSection() {
 }
 
 function TemplatesSection() {
+  const { isLoading: isAuthLoading } = useAuth();
   const utils = trpc.useUtils();
-  const { data: templates, isLoading } = trpc.config.getTemplates.useQuery();
+  const { data: templates, isLoading } = trpc.config.getTemplates.useQuery(undefined, {
+    enabled: !isAuthLoading,  // Wait for auth to complete before querying
+  });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newTemplate, setNewTemplate] = useState({ name: "", content: "" });
   const [editForm, setEditForm] = useState({ name: "", content: "" });
@@ -685,7 +691,7 @@ function TemplatesSection() {
     setEditForm({ name: template.name, content: template.content });
   };
 
-  if (isLoading) {
+  if (isLoading || isAuthLoading) {
     return (
       <Card>
         <CardContent className="py-8 flex justify-center">
@@ -884,8 +890,11 @@ const COMMON_TIMEZONES = [
 const MAX_WEBHOOKS = 5;
 
 function WebhooksSection() {
+  const { isLoggedIn, isLoading: isAuthLoading } = useAuth();
   const utils = trpc.useUtils();
-  const { data: webhooks, isLoading, isError } = trpc.webhooks.list.useQuery();
+  const { data: webhooks, isLoading, isError } = trpc.webhooks.list.useQuery(undefined, {
+    enabled: !isAuthLoading,  // Wait for auth to complete before querying
+  });
   const [isCreating, setIsCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
@@ -992,7 +1001,33 @@ function WebhooksSection() {
     updateMutation.mutate({ id: webhook.id, enabled: !webhook.enabled });
   };
 
-  if (isLoading) {
+  // Show login prompt for anonymous users
+  if (!isAuthLoading && !isLoggedIn) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Webhook className="h-5 w-5" />
+            Webhooks
+          </CardTitle>
+          <CardDescription>
+            Sign in to create scheduled webhook notifications
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Webhooks require an account to ensure reliable scheduled delivery.
+            Your webhooks will sync across devices when signed in.
+          </p>
+          <Button variant="outline" className="mt-4" asChild>
+            <Link to="/login">Sign in to enable webhooks</Link>
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (isLoading || isAuthLoading) {
     return (
       <Card>
         <CardContent className="py-8 flex justify-center">

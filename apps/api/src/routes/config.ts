@@ -8,6 +8,7 @@ import {
   deleteTemplateSchema,
   setDefaultTemplateSchema,
 } from "@til-stack/shared";
+import { z } from "zod";
 import { db, schema } from "../db/index.js";
 import { eq, and, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -221,5 +222,71 @@ export const configRouter = router({
       }
 
       return { success: true };
+    }),
+
+  // === User Preferences (AI Config, Theme) ===
+  getPreferences: publicProcedure.query(async ({ ctx }) => {
+    const userId = ctx.user?.id;
+    if (!userId) {
+      // Anonymous users don't have server-stored preferences
+      return null;
+    }
+
+    const prefs = await db
+      .select()
+      .from(schema.userPreferences)
+      .where(eq(schema.userPreferences.userId, userId))
+      .get();
+
+    return prefs ?? null;
+  }),
+
+  setPreferences: publicProcedure
+    .input(
+      z.object({
+        aiConfig: z.string().optional(), // JSON string
+        theme: z.enum(["system", "light", "dark"]).optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const userId = ctx.user?.id;
+      if (!userId) {
+        // Anonymous users can't save preferences to server
+        return null;
+      }
+
+      const existing = await db
+        .select()
+        .from(schema.userPreferences)
+        .where(eq(schema.userPreferences.userId, userId))
+        .get();
+
+      const now = new Date().toISOString();
+
+      if (existing) {
+        // Update existing
+        return await db
+          .update(schema.userPreferences)
+          .set({
+            ...(input.aiConfig !== undefined && { aiConfig: input.aiConfig }),
+            ...(input.theme !== undefined && { theme: input.theme }),
+            updatedAt: now,
+          })
+          .where(eq(schema.userPreferences.userId, userId))
+          .returning()
+          .get();
+      } else {
+        // Create new
+        return await db
+          .insert(schema.userPreferences)
+          .values({
+            id: nanoid(),
+            userId,
+            aiConfig: input.aiConfig ?? null,
+            theme: input.theme ?? null,
+          })
+          .returning()
+          .get();
+      }
     }),
 });

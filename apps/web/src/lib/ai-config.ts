@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
-
-const STORAGE_KEY = "til-ai-config";
+import { useMemo, useCallback, useEffect, useState } from "react";
+import { trpc } from "./trpc";
+import { useAuth } from "./auth-context";
 
 const DEFAULT_WEEKLY_PROMPT = `These are daily TIL (Today I Learned) entries from a developer's learning journal.
 Summarize the key technical learnings and insights from this week in 3-5 bullet points.
@@ -84,86 +84,89 @@ const DEFAULT_CONFIG: AIConfig = {
   googleAiApiKey: "",
 };
 
-function loadConfig(): AIConfig {
-  if (typeof window === "undefined") return DEFAULT_CONFIG;
-
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      const config = { ...DEFAULT_CONFIG, ...parsed };
-      console.log("[AIConfig] Loaded from localStorage:", {
-        backend: config.backend,
-        enabled: config.enabled,
-        hasGoogleAiKey: !!config.googleAiApiKey,
-        googleAiKeyPreview: config.googleAiApiKey ? `${config.googleAiApiKey.slice(0, 8)}...` : "(empty)",
-      });
-      return config;
-    }
-  } catch {
-    // Ignore parse errors
-  }
-  console.log("[AIConfig] Using default config (no stored config found)");
-  return DEFAULT_CONFIG;
-}
-
-function saveConfig(config: AIConfig): void {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
-}
-
 export function useAIConfig() {
-  const [config, setConfigState] = useState<AIConfig>(DEFAULT_CONFIG);
+  const { isLoading: isAuthLoading } = useAuth();
   const [isSupported, setIsSupported] = useState(false);
 
-  console.log("[AIConfig] useAIConfig render, current config:", {
-    backend: config.backend,
-    hasGoogleAiKey: !!config.googleAiApiKey,
-  });
-
-  // Load config on mount
+  // Check Summarizer API support on mount
   useEffect(() => {
-    console.log("[AIConfig] useEffect - loading config from localStorage");
-    const loaded = loadConfig();
-    console.log("[AIConfig] useEffect - setting config state:", {
-      backend: loaded.backend,
-      hasGoogleAiKey: !!loaded.googleAiApiKey,
-    });
-    setConfigState(loaded);
     setIsSupported("Summarizer" in window);
   }, []);
 
-  const setConfig = useCallback((updates: Partial<AIConfig>) => {
-    setConfigState((prev) => {
-      const newConfig = { ...prev, ...updates };
-      saveConfig(newConfig);
-      return newConfig;
-    });
-  }, []);
+  // Query preferences from DB (works for both anonymous and logged-in)
+  const prefsQuery = trpc.config.getPreferences.useQuery(undefined, {
+    enabled: !isAuthLoading,
+    staleTime: Infinity,
+  });
 
-  const setEnabled = useCallback((enabled: boolean) => {
-    setConfig({ enabled });
-  }, [setConfig]);
+  // Mutation to save preferences to DB
+  const setPreferencesMutation = trpc.config.setPreferences.useMutation({
+    onSuccess: () => {
+      prefsQuery.refetch();
+    },
+  });
 
-  const setWeeklyPrompt = useCallback((weeklyPrompt: string) => {
-    setConfig({ weeklyPrompt });
-  }, [setConfig]);
+  // Parse AI config from DB or use default
+  const config = useMemo<AIConfig>(() => {
+    if (!prefsQuery.data?.aiConfig) return DEFAULT_CONFIG;
+    try {
+      const parsed = JSON.parse(prefsQuery.data.aiConfig);
+      return { ...DEFAULT_CONFIG, ...parsed };
+    } catch {
+      console.warn("[AIConfig] Failed to parse DB config, using default");
+      return DEFAULT_CONFIG;
+    }
+  }, [prefsQuery.data?.aiConfig]);
 
-  const setBackend = useCallback((backend: AIBackend) => {
-    setConfig({ backend });
-  }, [setConfig]);
+  const setConfig = useCallback(
+    (updates: Partial<AIConfig>) => {
+      const newConfig = { ...config, ...updates };
+      setPreferencesMutation.mutate({ aiConfig: JSON.stringify(newConfig) });
+    },
+    [config, setPreferencesMutation]
+  );
 
-  const setWebllmModel = useCallback((webllmModel: string) => {
-    setConfig({ webllmModel });
-  }, [setConfig]);
+  const setEnabled = useCallback(
+    (enabled: boolean) => {
+      setConfig({ enabled });
+    },
+    [setConfig]
+  );
 
-  const setGroqApiKey = useCallback((groqApiKey: string) => {
-    setConfig({ groqApiKey });
-  }, [setConfig]);
+  const setWeeklyPrompt = useCallback(
+    (weeklyPrompt: string) => {
+      setConfig({ weeklyPrompt });
+    },
+    [setConfig]
+  );
 
-  const setGoogleAiApiKey = useCallback((googleAiApiKey: string) => {
-    setConfig({ googleAiApiKey });
-  }, [setConfig]);
+  const setBackend = useCallback(
+    (backend: AIBackend) => {
+      setConfig({ backend });
+    },
+    [setConfig]
+  );
+
+  const setWebllmModel = useCallback(
+    (webllmModel: string) => {
+      setConfig({ webllmModel });
+    },
+    [setConfig]
+  );
+
+  const setGroqApiKey = useCallback(
+    (groqApiKey: string) => {
+      setConfig({ groqApiKey });
+    },
+    [setConfig]
+  );
+
+  const setGoogleAiApiKey = useCallback(
+    (googleAiApiKey: string) => {
+      setConfig({ googleAiApiKey });
+    },
+    [setConfig]
+  );
 
   const resetPrompt = useCallback(() => {
     setConfig({ weeklyPrompt: DEFAULT_WEEKLY_PROMPT });
@@ -172,6 +175,7 @@ export function useAIConfig() {
   return {
     config,
     isSupported,
+    isLoading: prefsQuery.isLoading,
     setEnabled,
     setBackend,
     setWebllmModel,

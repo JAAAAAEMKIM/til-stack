@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useCallback } from "react";
+import { trpc } from "./trpc";
+import { useAuth } from "./auth-context";
 
 export type Theme = "system" | "light" | "dark";
-
-const THEME_KEY = "til-theme";
 
 function getSystemTheme(): "light" | "dark" {
   if (typeof window === "undefined") return "light";
@@ -19,15 +19,33 @@ function applyTheme(theme: Theme) {
 }
 
 export function useTheme() {
-  const [theme, setThemeState] = useState<Theme>(() => {
-    if (typeof window === "undefined") return "system";
-    return (localStorage.getItem(THEME_KEY) as Theme) || "system";
+  const { isLoading: isAuthLoading } = useAuth();
+
+  // Query preferences from DB (works for both anonymous and logged-in)
+  const prefsQuery = trpc.config.getPreferences.useQuery(undefined, {
+    enabled: !isAuthLoading,
+    staleTime: Infinity,
   });
 
+  // Mutation to save preferences
+  const setPreferencesMutation = trpc.config.setPreferences.useMutation({
+    onSuccess: () => {
+      prefsQuery.refetch();
+    },
+  });
+
+  // Parse theme from DB response or default to "system"
+  const theme = useMemo<Theme>(() => {
+    if (!prefsQuery.data?.theme) return "system";
+    return prefsQuery.data.theme as Theme;
+  }, [prefsQuery.data?.theme]);
+
+  // Apply theme when it changes
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);
 
+  // Listen to system theme changes when theme is "system"
   useEffect(() => {
     if (theme !== "system") return;
 
@@ -37,15 +55,17 @@ export function useTheme() {
     return () => mediaQuery.removeEventListener("change", handler);
   }, [theme]);
 
-  const setTheme = (newTheme: Theme) => {
-    localStorage.setItem(THEME_KEY, newTheme);
-    setThemeState(newTheme);
-  };
+  const setTheme = useCallback(
+    (newTheme: Theme) => {
+      setPreferencesMutation.mutate({ theme: newTheme });
+    },
+    [setPreferencesMutation]
+  );
 
   return { theme, setTheme };
 }
 
+// initTheme now does nothing - CSS handles initial theme
 export function initTheme() {
-  const theme = (localStorage.getItem(THEME_KEY) as Theme) || "system";
-  applyTheme(theme);
+  // No-op: CSS prefers-color-scheme handles initial theme
 }

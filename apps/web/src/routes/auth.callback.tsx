@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, CheckCircle, XCircle } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/lib/auth-context";
+import { sharedWorkerClient } from "@/lib/shared-worker-client";
 import { useQueryClient } from "@tanstack/react-query";
 import { rootRoute } from "./__root";
 
@@ -20,31 +21,16 @@ export const authCallbackRoute = createRoute({
   component: AuthCallbackPage,
 });
 
-// Helper to send message to service worker and wait for response
-async function sendToServiceWorker<T>(message: Record<string, unknown>): Promise<T> {
-  const registration = await navigator.serviceWorker?.ready;
-  if (!registration?.active) {
-    throw new Error("Service worker not ready");
-  }
-
-  return new Promise((resolve, reject) => {
-    const messageChannel = new MessageChannel();
-    messageChannel.port1.onmessage = (event) => {
-      if (event.data?.error) {
-        reject(new Error(event.data.error));
-      } else {
-        resolve(event.data);
-      }
-    };
-    registration.active?.postMessage(message, [messageChannel.port2]);
-    setTimeout(() => reject(new Error("Service worker timeout")), 30000);
-  });
+// Helper to send message to shared worker and wait for response
+async function sendToSharedWorker<T>(message: Record<string, unknown>): Promise<T> {
+  await sharedWorkerClient.ready();
+  return sharedWorkerClient.send<T>(message);
 }
 
 // Check if user has existing data in IndexedDB
 async function checkUserHasData(userId: string): Promise<boolean> {
   try {
-    const result = await sendToServiceWorker<{ hasData: boolean }>({
+    const result = await sendToSharedWorker<{ hasData: boolean }>({
       type: "CHECK_USER_DATA",
       userId,
     });
@@ -109,7 +95,7 @@ function AuthCallbackPage() {
           // Only migrate anonymous data for NEW users
           // Existing users should NOT merge anonymous data - it stays separate
           try {
-            const syncResult = await sendToServiceWorker<{
+            const syncResult = await sendToSharedWorker<{
               success: boolean;
               migrated: boolean;
               merged: boolean;

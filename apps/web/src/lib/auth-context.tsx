@@ -9,6 +9,7 @@ import {
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { trpc } from "./trpc";
+import { sharedWorkerClient } from "./shared-worker-client";
 
 export interface User {
   id: string;
@@ -41,32 +42,31 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
-// Helper to send message to service worker and wait for response
-async function sendToServiceWorker<T>(message: Record<string, unknown>): Promise<T> {
-  const registration = await navigator.serviceWorker?.ready;
-  if (!registration?.active) {
-    throw new Error("Service worker not ready");
-  }
+// Helper to send message to shared worker and wait for response
+async function sendToSharedWorker<T>(message: Record<string, unknown>): Promise<T> {
+  await sharedWorkerClient.ready();
+  return sharedWorkerClient.send<T>(message);
+}
 
-  return new Promise((resolve, reject) => {
-    const messageChannel = new MessageChannel();
-    messageChannel.port1.onmessage = (event) => {
-      if (event.data?.error) {
-        reject(new Error(event.data.error));
-      } else {
-        resolve(event.data);
-      }
-    };
-    registration.active?.postMessage(message, [messageChannel.port2]);
-    setTimeout(() => reject(new Error("Service worker timeout")), 30000);
-  });
+/**
+ * Wait for shared worker to be ready.
+ * SharedWorker is always available immediately after instantiation.
+ */
+async function waitForSharedWorker(): Promise<boolean> {
+  try {
+    await sharedWorkerClient.ready();
+    return true;
+  } catch (err) {
+    console.warn("[Auth] SharedWorker ready check failed:", err);
+    return false;
+  }
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [isSwReady, setIsSwReady] = useState(false);
+  const [isWorkerReady, setIsWorkerReady] = useState(false);
   const prevUserIdRef = useRef<string | null | undefined>(undefined);
   const queryClient = useQueryClient();
 
@@ -80,9 +80,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const logoutMutation = trpc.auth.logout.useMutation();
   const deleteAccountMutation = trpc.auth.deleteAccount.useMutation();
 
-  // Sync user state with query and notify service worker
-  // CRITICAL: We must AWAIT the service worker switch before setting isLoading=false
-  // Otherwise, queries will fire before the SW has switched to the correct user database
+  // Sync user state with query and notify shared worker
+  // CRITICAL: We must AWAIT the shared worker switch before setting isLoading=false
+  // Otherwise, queries will fire before the worker has switched to the correct user database
   useEffect(() => {
     if (meQuery.isLoading) {
       return; // Don't set isLoading=true here, it starts true
@@ -100,77 +100,110 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
 
     // Skip if same user and already ready (prevents unnecessary re-runs)
-    if (!userChanged && isSwReady && prevUserId === newUserId) {
+    if (!userChanged && isWorkerReady && prevUserId === newUserId) {
       return;
     }
 
     // Update refs before async operation
     prevUserIdRef.current = newUserId;
 
-    // Notify service worker and WAIT for acknowledgment before proceeding
-    // This prevents race conditions where queries fire before SW switches databases
+    // Notify shared worker and WAIT for acknowledgment before proceeding
+    // This prevents race conditions where queries fire before worker switches databases
     const notifyAndFinish = async () => {
-      // Only notify SW if user is logged in
+      // Wait for SharedWorker to be ready
+      console.log(`[Auth] Waiting for SharedWorker...`);
+      const hasWorker = await waitForSharedWorker();
+      if (!hasWorker) {
+        console.warn(`[Auth] Proceeding without SharedWorker - this may cause data isolation issues`);
+      }
+
+      // Only notify worker if user is logged in
       if (newUser) {
-        console.log(`[Auth] Notifying SW of user ${newUserId} and waiting for response...`);
+        console.log(`[Auth] Notifying SharedWorker of user ${newUserId} and waiting for response...`);
 
         try {
-          // Use sendToServiceWorker which awaits the response
+          // Use sendToSharedWorker which awaits the response
           // This is idempotent - multiple calls with same userId are safe
-          await sendToServiceWorker({
+          await sendToSharedWorker({
             type: "USER_LOGGED_IN",
             userId: newUser.id,
           });
-          console.log(`[Auth] SW acknowledged user switch to ${newUserId}`);
+          console.log(`[Auth] SharedWorker acknowledged user switch to ${newUserId}`);
         } catch (error) {
-          console.warn(`[Auth] SW notification failed:`, error);
-          // Continue anyway - SW might not be ready yet
+          console.warn(`[Auth] SharedWorker notification failed:`, error);
+          // Continue anyway - worker might not be ready yet
         }
       } else {
-        console.log(`[Auth] No user logged in, proceeding without SW notification`);
+        // CRITICAL: Also notify worker for anonymous users
+        // This ensures the database is initialized for anonymous usage,
+        // regardless of navigation path (direct visit vs. login page -> home)
+        console.log(`[Auth] Notifying SharedWorker of anonymous user...`);
+        try {
+          await sendToSharedWorker({ type: "USER_ANONYMOUS" });
+          console.log(`[Auth] SharedWorker acknowledged anonymous user`);
+        } catch (error) {
+          console.warn(`[Auth] SharedWorker anonymous notification failed:`, error);
+        }
       }
 
       // Always set these at the end
-      setIsSwReady(true);
+      setIsWorkerReady(true);
       setUser(newUser);
       setIsLoading(false);
     };
 
     notifyAndFinish();
-  }, [meQuery.isLoading, meQuery.data, queryClient, isSwReady]);
+  }, [meQuery.isLoading, meQuery.data, queryClient, isWorkerReady]);
 
-  // Online/offline event handlers - notify service worker for sync
+  // SharedWorker doesn't need restart detection like ServiceWorker
+  // The SharedWorker persists across page reloads and is always available
+  // If the worker crashes, the client will automatically attempt to reconnect
+
+  // Online/offline event handlers - notify shared worker for sync
   useEffect(() => {
-    const handleOnline = () => {
+    const handleOnline = async () => {
       console.log("[Auth] Browser went online");
-      navigator.serviceWorker?.controller?.postMessage({
-        type: "SET_ONLINE_STATUS",
-        online: true,
-      });
-      // Also trigger a retry for pending operations
-      if (user) {
-        sendToServiceWorker({ type: "RETRY_SYNC" }).catch((err) => {
-          console.warn("[Auth] Retry sync on reconnect failed:", err);
+      try {
+        await sendToSharedWorker({
+          type: "SET_ONLINE_STATUS",
+          online: true,
         });
+        // Also trigger a retry for pending operations
+        if (user) {
+          await sendToSharedWorker({ type: "RETRY_SYNC" });
+        }
+      } catch (err) {
+        console.warn("[Auth] Online notification or retry sync failed:", err);
       }
     };
 
-    const handleOffline = () => {
+    const handleOffline = async () => {
       console.log("[Auth] Browser went offline");
-      navigator.serviceWorker?.controller?.postMessage({
-        type: "SET_ONLINE_STATUS",
-        online: false,
-      });
+      try {
+        await sendToSharedWorker({
+          type: "SET_ONLINE_STATUS",
+          online: false,
+        });
+      } catch (err) {
+        console.warn("[Auth] Offline notification failed:", err);
+      }
     };
 
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
 
     // Set initial status
-    navigator.serviceWorker?.controller?.postMessage({
-      type: "SET_ONLINE_STATUS",
-      online: navigator.onLine,
-    });
+    (async () => {
+      try {
+        await sharedWorkerClient.ready();
+        await sendToSharedWorker({
+          type: "SET_ONLINE_STATUS",
+          online: navigator.onLine,
+        });
+      } catch (err) {
+        console.warn("[Auth] Initial online status notification failed:", err);
+      }
+    })();
 
     return () => {
       window.removeEventListener("online", handleOnline);
@@ -184,13 +217,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
     window.location.href = `${apiUrl}/trpc/auth.getGoogleAuthUrl`;
   }, []);
 
-  // Manual sync trigger - delegates to service worker
+  // Manual sync trigger - delegates to shared worker
   const triggerSync = useCallback(async () => {
     if (!user) return;
 
     setIsSyncing(true);
     try {
-      await sendToServiceWorker({ type: "SYNC_NOW" });
+      await sendToSharedWorker({ type: "SYNC_NOW" });
       console.log("[Auth] Manual sync complete");
     } catch (error) {
       console.error("[Auth] Manual sync failed:", error);
@@ -199,10 +232,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, [user]);
 
-  // Helper to clear local data via service worker
+  // Helper to clear local data via shared worker
   const clearLocalData = useCallback(async (): Promise<boolean> => {
     try {
-      const result = await sendToServiceWorker<{ success: boolean }>({
+      const result = await sendToSharedWorker<{ success: boolean }>({
         type: "CLEAR_LOCAL_DATA",
       });
       return result.success;
@@ -233,8 +266,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
         await clearLocalData();
       }
 
-      // Notify service worker of logout and WAIT for it to switch namespaces
-      await sendToServiceWorker({ type: "USER_LOGGED_OUT" });
+      // Notify shared worker of logout and WAIT for it to switch namespaces
+      await sendToSharedWorker({ type: "USER_LOGGED_OUT" });
     } catch (error) {
       console.error("Logout failed:", error);
     }
@@ -258,8 +291,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // Clear local data
       await clearLocalData();
 
-      // Notify service worker and WAIT for it to switch namespaces
-      await sendToServiceWorker({ type: "USER_LOGGED_OUT" });
+      // Notify shared worker and WAIT for it to switch namespaces
+      await sendToSharedWorker({ type: "USER_LOGGED_OUT" });
     } catch (error) {
       console.error("Delete account failed:", error);
     }

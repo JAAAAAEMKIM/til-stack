@@ -16,6 +16,10 @@ export default defineConfig({
       import: "./src/service-worker.ts",
       filename: "service-worker.js",
     },
+    "shared-worker": {
+      import: "./src/shared-worker.ts",
+      filename: "shared-worker.js",
+    },
   },
   output: {
     publicPath: "/",
@@ -81,6 +85,7 @@ export default defineConfig({
     }),
     new rspack.DefinePlugin({
       "process.env.API_URL": JSON.stringify(apiUrl),
+      "__API_URL__": JSON.stringify(apiUrl || ''),
     }),
     isDev ? new RefreshPlugin() : null,
   ].filter(Boolean),

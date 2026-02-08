@@ -84,3 +84,20 @@ export const webhooks = sqliteTable("webhooks", {
 
 export type WebhookRow = typeof webhooks.$inferSelect;
 export type InsertWebhookRow = typeof webhooks.$inferInsert;
+
+// User preferences (AI config, theme, etc.) - stored as JSON
+export const userPreferences = sqliteTable("user_preferences", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().unique(), // One preferences row per user
+  aiConfig: text("ai_config"), // JSON string of AI configuration
+  theme: text("theme"), // "system" | "light" | "dark"
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+export type UserPreferencesRow = typeof userPreferences.$inferSelect;
+export type InsertUserPreferencesRow = typeof userPreferences.$inferInsert;

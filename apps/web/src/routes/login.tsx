@@ -13,28 +13,14 @@ import { Label } from "@/components/ui/label";
 import { GoogleIcon } from "@/components/icons/google";
 import { useAuth } from "@/lib/auth-context";
 import { trpc } from "@/lib/trpc";
+import { sharedWorkerClient } from "@/lib/shared-worker-client";
 import { Loader2, AlertTriangle, Code } from "lucide-react";
 import { rootRoute } from "./__root";
 
-// Helper to send message to service worker and wait for response
-async function sendToServiceWorker<T>(message: Record<string, unknown>): Promise<T> {
-  const registration = await navigator.serviceWorker?.ready;
-  if (!registration?.active) {
-    throw new Error("Service worker not ready");
-  }
-
-  return new Promise((resolve, reject) => {
-    const messageChannel = new MessageChannel();
-    messageChannel.port1.onmessage = (event) => {
-      if (event.data?.error) {
-        reject(new Error(event.data.error));
-      } else {
-        resolve(event.data);
-      }
-    };
-    registration.active?.postMessage(message, [messageChannel.port2]);
-    setTimeout(() => reject(new Error("Service worker timeout")), 30000);
-  });
+// Helper to send message to shared worker and wait for response
+async function sendToSharedWorker<T>(message: Record<string, unknown>): Promise<T> {
+  await sharedWorkerClient.ready();
+  return sharedWorkerClient.send<T>(message);
 }
 
 export const loginRoute = createRoute({
@@ -114,7 +100,7 @@ function LoginPage() {
       // Existing users should NOT merge anonymous data - it stays separate
       if (userId) {
         try {
-          await sendToServiceWorker<{
+          await sendToSharedWorker<{
             success: boolean;
             migrated: boolean;
             merged: boolean;
