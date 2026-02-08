@@ -110,13 +110,19 @@ export class SyncOrchestrator {
 
     this.currentUserId = userId;
 
-    // For new users, trigger full sync after migration
+    // For new users, push migrated anonymous data first, then pull from server
     // For existing users, just pull from server
     if (isNewUser && this.isOnline) {
       try {
-        const syncResult = await this.fullSync();
-        this.ctx.debug.log('sync', `Login fullSync completed: pushed=${syncResult.pushed}, pulled=${syncResult.pulled}`);
-        return { migrated: true, merged: false, pulled: syncResult.pulled, mergedEntries: 0 };
+        // New user: push migrated anonymous data to server first
+        const pushed = await this.pushToServer();
+        this.ctx.debug.log('sync', `New user push completed: pushed=${pushed} entries`);
+
+        // Then pull to reconcile (in case of any conflicts or server-side processing)
+        const pulled = await this.pullFromServer();
+        this.ctx.debug.log('sync', `New user pull completed: pulled=${pulled} entries`);
+
+        return { migrated: true, merged: false, pulled, mergedEntries: pushed };
       } catch (error) {
         this.ctx.debug.log('sync', 'Login sync failed:', error);
         return { migrated: true, merged: false, pulled: 0, mergedEntries: 0 };
