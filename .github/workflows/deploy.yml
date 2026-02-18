@@ -27,6 +27,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set up QEMU (for multi-platform builds)
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -36,6 +39,7 @@ jobs:
           context: .
           file: apps/api/Dockerfile
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: |
             ${{ env.API_IMAGE }}:${{ github.sha }}
             ${{ env.API_IMAGE }}:latest
@@ -48,6 +52,7 @@ jobs:
           context: .
           file: apps/web/Dockerfile
           push: true
+          platforms: linux/amd64,linux/arm64
           build-args: |
             API_URL=https://til.jaaaaaemkim.com/api
           tags: |
@@ -91,8 +96,8 @@ jobs:
             docker tag ${WEB_IMAGE}:${IMAGE_TAG} ${WEB_IMAGE}:latest
 
             # Stop old containers and start new ones
-            docker-compose -f docker-compose.production.yml down
-            docker-compose -f docker-compose.production.yml up -d
+            docker compose down
+            docker compose up -d
 
             # Wait for health checks
             sleep 15
