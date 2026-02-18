@@ -1,0 +1,55 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1704470400000,
+      "tag": "0000_rainy_molten_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1704556800000,
+      "tag": "0001_huge_champions",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1705183200000,
+      "tag": "0002_high_mojo",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1705183200000,
+      "tag": "0003_modern_gressill",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1705312800000,
+      "tag": "0004_clumsy_warbound",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1705316400000,
+      "tag": "0005_sweet_pestilence",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1706612400000,
+      "tag": "0006_user_preferences",
+      "breakpoints": true
+    }
+  ]
+}
