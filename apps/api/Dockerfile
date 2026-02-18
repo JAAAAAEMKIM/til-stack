@@ -16,7 +16,7 @@ RUN pnpm --filter @til-stack/shared build
 RUN pnpm --filter @til-stack/api build
 
 # Create production deployment (resolves workspace: dependencies)
-RUN pnpm --filter @til-stack/api deploy --prod /app/prod
+RUN pnpm --filter @til-stack/api deploy --prod --legacy /app/prod
 
 # Production stage
 FROM node:20-alpine
