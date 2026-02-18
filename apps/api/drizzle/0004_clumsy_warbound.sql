@@ -8,7 +8,7 @@ CREATE TABLE `__new_entries` (
 	`updated_at` text NOT NULL
 );
 --> statement-breakpoint
-INSERT INTO `__new_entries`("id", "date", "content", "user_id", "created_at", "updated_at") SELECT "id", "date", "content", "user_id", "created_at", "updated_at" FROM `entries`;--> statement-breakpoint
+INSERT INTO `__new_entries`("id", "date", "content", "user_id", "created_at", "updated_at") SELECT "id", "date", "content", NULL, "created_at", "updated_at" FROM `entries`;--> statement-breakpoint
 DROP TABLE `entries`;--> statement-breakpoint
 ALTER TABLE `__new_entries` RENAME TO `entries`;--> statement-breakpoint
 PRAGMA foreign_keys=ON;--> statement-breakpoint
@@ -21,7 +21,7 @@ CREATE TABLE `__new_skip_days` (
 	`created_at` text NOT NULL
 );
 --> statement-breakpoint
-INSERT INTO `__new_skip_days`("id", "type", "value", "user_id", "created_at") SELECT "id", "type", "value", "user_id", "created_at" FROM `skip_days`;--> statement-breakpoint
+INSERT INTO `__new_skip_days`("id", "type", "value", "user_id", "created_at") SELECT "id", "type", "value", NULL, "created_at" FROM `skip_days`;--> statement-breakpoint
 DROP TABLE `skip_days`;--> statement-breakpoint
 ALTER TABLE `__new_skip_days` RENAME TO `skip_days`;--> statement-breakpoint
 CREATE TABLE `__new_templates` (
@@ -34,7 +34,7 @@ CREATE TABLE `__new_templates` (
 	`updated_at` text NOT NULL
 );
 --> statement-breakpoint
-INSERT INTO `__new_templates`("id", "name", "content", "is_default", "user_id", "created_at", "updated_at") SELECT "id", "name", "content", "is_default", "user_id", "created_at", "updated_at" FROM `templates`;--> statement-breakpoint
+INSERT INTO `__new_templates`("id", "name", "content", "is_default", "user_id", "created_at", "updated_at") SELECT "id", "name", "content", "is_default", NULL, "created_at", "updated_at" FROM `templates`;--> statement-breakpoint
 DROP TABLE `templates`;--> statement-breakpoint
 ALTER TABLE `__new_templates` RENAME TO `templates`;--> statement-breakpoint
 CREATE TABLE `__new_webhooks` (
@@ -51,6 +51,6 @@ CREATE TABLE `__new_webhooks` (
 	`updated_at` text NOT NULL
 );
 --> statement-breakpoint
-INSERT INTO `__new_webhooks`("id", "name", "url", "message", "time", "days", "timezone", "enabled", "user_id", "created_at", "updated_at") SELECT "id", "name", "url", "message", "time", "days", "timezone", "enabled", "user_id", "created_at", "updated_at" FROM `webhooks`;--> statement-breakpoint
+INSERT INTO `__new_webhooks`("id", "name", "url", "message", "time", "days", "timezone", "enabled", "user_id", "created_at", "updated_at") SELECT "id", "name", "url", "message", "time", "days", "timezone", "enabled", NULL, "created_at", "updated_at" FROM `webhooks`;--> statement-breakpoint
 DROP TABLE `webhooks`;--> statement-breakpoint
 ALTER TABLE `__new_webhooks` RENAME TO `webhooks`;
